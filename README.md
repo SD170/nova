@@ -6,7 +6,7 @@ Core demo: "Jarvis, I have an exam on Monday. Check what I need to study, test m
 
 ## Team
 
-4 people, <24h, deadline Nov 15 2026 @ 11:00am MST.
+4 people, <24h, deadline Nov 15 2026 @ 11:00am MST
 
 ## Stack targets (sponsor prizes)
 

@@ -85,6 +85,15 @@ Tool registry (proposed, build with mocks first):
 | 3 | Retrieval, quiz, study plan | OAuth, UI |
 | 4 | UI, voice, demo polish | Tool routing |
 
+## Team context files
+
+Each teammate owns one md in `context/` — drop ideas, decisions, blockers there as you think of them, commit, teammates `git pull`.
+
+- `context/saswata.md` — Saswata (SD170) — orchestrator + /chat
+- `context/abishek.md` — Abishek (Abishek1801) — Canvas + Calendar
+- `context/amrita.md` — Amrita (AmritaSeeram) — retrieval + quiz
+- `context/shruti.md` — Shruti (shrutipochiraju-sai) — UI + voice + demo
+
 ## Current status
 
 Planning. No code committed yet. Next step: lock interface contract + spin up mock tools so everyone can start in parallel.

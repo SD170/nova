@@ -1,0 +1,42 @@
+// deps
+node_modules/
+.pnp/
+.pnp.js
+
+// python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+// env + secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+api-keys.md
+secrets/
+
+// build output
+dist/
+build/
+.next/
+out/
+
+// os
+.DS_Store
+Thumbs.db
+
+// ide
+.vscode/
+.idea/
+*.swp
+
+// logs
+*.log
+logs/
+
+// hermes
+.hermes/

@@ -2,6 +2,12 @@
 
 Owner: Saswata Dutta (GitHub: SD170)
 
+> **Context as of Nov 15, 06:45 local.** The earlier sections of this file are
+> the plan / history (kept for grep). The LIVE STATE section at the bottom is
+> the only part you need to re-read to catch up.
+
+<!-- preserve full plan/history below; LIVE STATE appended at end -->
+
 ## Status — Nov 15, 00:30 local
 
 **Brain is live.** Voice turns are going Vapi → Cloudflare tunnel → bridge → Hermes (Claude Haiku, in-repo profile) → voice.
@@ -57,6 +63,8 @@ Design points:
 **Realistic prize count: 5-8.** Best Overall is a stretch if the voice + orchestrator + browser demo lands.
 
 Explicitly not chasing: MatLab (forced), Solana (forced), Hardware (no budget/time), Gaming (not primary — could gamify quizzes if slack), MLH niche tracks.
+
+[NOTE added later: Solana IS in-scope now — see LIVE STATE blockchain section. The earlier "not chasing" is kept for history.]
 
 ## Work chunks (priority ordered, no names yet)
 
@@ -498,8 +506,206 @@ The brain then: pulls `supermemory.get_user_interests()` + `get_recent_stars()` 
 
 ## Decisions I'm making — session log
 
-- 
+- Nov 14 → Nov 15: everything from "plan" above shipped incrementally. The LIVE STATE section below is the authoritative current snapshot.
 
 ## Blockers
 
-- 
+- See LIVE STATE → blockers list.
+
+---
+
+# LIVE STATE — Nov 15, 06:50 local  *(this is the only part that's current)*
+
+## What's running right now
+
+| Service | Where | Status | Owner |
+|---|---|---|---|
+| Nova.app (Electron, holographic avatar) | `~/Applications/Nova.app`, pid tracked in session | ✅ running | Shruti (UI), Saswata (voice wiring) |
+| Vapi bridge (FastAPI :8000) | `apps/brain/bridge.py` — Hermes-as-brain, SSE streaming to Vapi, control-URL inject | ✅ running | Saswata |
+| Cred-agent (FastAPI :9010) | `apps/cred-agent/` — mint credentials to Solana devnet + R2 + Metaplex NFT | ✅ running | Saswata |
+| Canvas MCP (FastAPI :9001) | `apps/browser-agent/` — Abishek's Playwright-via-TinyFish Canvas scraper + MCP server | ✅ running (public tunnel) | Abishek |
+| Google workspace mock (:9005) | `apps/google-agent/` — mock Gmail/Calendar/Drive | ✅ running | Abishek |
+| Amrita news (:9004) | `drafts/amrita-current-events/` — RSS pool | ✅ running | Amrita |
+| Cloudflare tunnels | `PUBLIC_BRAIN_BASE`, `PUBLIC_CANVAS_BASE` in `shared.env` | ✅ UP | Saswata |
+
+Health one-liner:
+```bash
+for p in 8000 9010 9004 9005; do curl -sf http://127.0.0.1:$p/health > /dev/null && echo ":$p UP" || echo ":$p DOWN"; done
+```
+
+## Voice stack (locked)
+
+- **Router**: `openai gpt-4o-mini` on Vapi (NOT our Hermes brain). Handles small-talk directly (<1s), delegates hard questions via tools.
+- **Brain**: Hermes (Claude Haiku/Opus via Anthropic) at `apps/brain/hermes-home/default/`. Called via `ask_brain` tool from the router.
+- **Why two layers**: 80% of turns are small-talk ("hi", "thanks"); routing through Hermes would cost 8s each. Router handles those in 500ms, brain only runs on real fact lookups.
+- **Voice**: Nova = `Sagar` (user's dashboard pick, preserved by `_merge_preserving` in setup_vapi), Shruti = `Rohan`. Both Indian male voices for consistency.
+- **PTT (push-to-talk)**: SPACE held = mic open, SPACE released = mic muted. Default muted. `desiredMuted` state in `drafts/shruti/app/src/voice/vapiClient.ts` re-asserted on every `call-start` to kill the "mic open on reconnect" footgun.
+- **Interrupt**: SPACE press also sends `control: mute-assistant` to Vapi, cutting Nova mid-sentence. 120ms later we unmute her so the next turn plays.
+
+## Tools wired onto Vapi (both Nova + Shruti have all 3)
+
+1. **`ask_brain(question)`** → `POST ${BRAIN_BASE}/ask_brain`
+   Fire-and-forget. Returns opaque `<ACK#tNNN>` instantly. Hermes runs in background (6-15s for Canvas/Gmail queries), result injected as spoken message via Vapi's `monitor.controlUrl` → `{type:"say", content, endCallAfterSpoken:false}`.
+
+2. **`check_task(task_id?)`** → `POST ${BRAIN_BASE}/check_task`
+   Status lookup for pending background tasks. Prevents re-delegation when user says "still on it?" / "any update?"
+
+3. **`mint_credential(item_key?, nft_name?)`** → `POST ${BRAIN_BASE}/mint_credential`
+   Fire-and-forget NFT mint. Forwards to cred-agent :9010. Returns `<ACK#mint-...>` instantly. Real completion spoken via inject-say when NFT lands on devnet + R2 + Metaplex.
+
+## NOVA_ROUTER.md rules (summary — see file for full)
+
+- Rule 1: **ALWAYS invoke the tool** when delegating. Pretending to delegate without calling the tool is a failure.
+- Rule 2: `ask_brain` is fire-and-forget. Speak a bridge line ("meanwhile I'm checking Canvas…"), fire the tool, then stay silent. Real answer arrives separately.
+- Rule 2a: Follow-ups → `check_task`, never re-call `ask_brain`.
+- Rule 2b: Mint intent ("mint my credentials", "put it on-chain", "nft my transcript") → `mint_credential`.
+- Rule 3: Normal conversation never triggers the brain.
+- Rule 4: One-word prompts answered directly in <5 words.
+
+## Blockchain / credentials (new as of Nov 15)
+
+### What it does
+
+Voice command "mint my credentials" → cred-agent pulls student's Canvas record → canonicalizes → Ed25519-signs with the student's keypair → anchors SHA-256 on Solana devnet (Memo program) → uploads credential JSON to Cloudflare R2 → mints a Metaplex NFT whose `uri` points at the R2 JSON. Anyone with the NFT mint address can:
+1. Open Solana Explorer → see the anchor tx
+2. GET the R2 JSON → see the full credential envelope
+3. Re-hash the canonical bytes → match the on-chain hash → Ed25519-verify the signature
+
+Verify page at `http://127.0.0.1:9010/v/<cred_id>` renders this live: show JSON, let user edit it, hash + signature go red immediately = tamper detection demo.
+
+### Honest trust model (what we tell judges)
+
+This is **NOT** an ASU-signed transcript. ASU doesn't issue verifiable credentials. The on-chain data attests: *"at time T, pubkey P fetched URL U from the Canvas MCP and the bytes hashed to H."*
+
+Trust root = student + browser-oracle (Playwright + TinyFish). For a proper chain of trust, the browser-oracle would also sign the scrape. Documented in `research_asu_credentials.md` at repo root.
+
+### Live devnet state
+
+- **Student pubkey**: `Bq3Ba6ayhtAvf6kuxUyWZKZGu7Da3rRL8aLsBAWhePy1` (funded via `requestAirdrop` on devnet)
+- **R2 bucket**: `pub-5a51a49f50124972be99720d47ce46cb.r2.dev` (public read)
+- **Latest live mint** (verified ad-hoc end-to-end):
+  - Solana tx: `3UxQ7UUivCwRn6VvY6YrrNuJsCgPiffC2PNLmFMGMAzdoonjH4m1PAzPLUMKEnzYEGqgC8mMEVSJMBQWifzXE6Hh`
+  - NFT: `9S6WE854BA8v6ARDyNB5oLnvyhjwd936AnbfCHpF6naW`
+  - R2 JSON: `https://pub-5a51a49f50124972be99720d47ce46cb.r2.dev/credentials/cred_1794749333_d40a7e.json`
+  - Verify: `http://127.0.0.1:9010/v/cred_1794749333_d40a7e`
+
+### Cred-agent files (`apps/cred-agent/app/`)
+
+| File | Purpose |
+|---|---|
+| `main.py` | FastAPI :9010. Endpoints: `/health`, `/mint_credential`, `/verify`, `/credentials`, `/api/credential/{id}`, `/v/{id}`, `/pending`, `/register_done`, `/airdrop`, `/screenshots/*`, `/static/*` |
+| `canonical.py` | Deterministic JSON canonicalization (sorted keys, compact, UTF-8) + SHA-256 |
+| `signer.py` | Ed25519 load-from-env + sign + verify |
+| `solana_memo.py` | Memo program anchor via pure-Python JSON-RPC (solana-py 0.42 dropped sync Client) |
+| `nft_mint.py` | Metaplex Token Metadata NFT: creates mint account, inits mint (decimals=0), ATA, mint_to(1), then borsh-encoded `CreateMetadataAccountV3` at PDA `[b"metadata", METADATA_PROGRAM, mint]`. Two txs, both waited for confirmed. |
+| `r2.py` | Cloudflare R2 S3-compatible upload via boto3. `VERIFY_USER_AGENT` exported for UA-gated public GETs. |
+| `browser_client.py` | Client for Abishek's `/screenshot` endpoint (defensive — graceful fallback when Abishek hasn't shipped it yet) |
+| `canvas_fetch.py` | Pulls transcript data from Canvas MCP (list_courses + get_daily_brief + get_course_items) |
+| `registry.py` | Idempotent mint registry → `credentials/_registry.json`. `item_key` → `{cred_id, tx, ts}`. Blocks double-mints. |
+| `vapi_tool_def.py` | Scaffolded Vapi function tool def (not auto-wired; `setup_vapi.py` has its own copy) |
+
+### Cred-agent one-shot: `scripts/mint.sh`
+
+```bash
+cd apps/cred-agent
+./scripts/mint.sh                               # default item_key
+./scripts/mint.sh grades hw3 "HW3 Ed25519 proof" # + witness + nft name
+```
+
+Boots the service if not running, does a health check, builds the mint body, surfaces any HTTP error with an airdrop command hint, pretty-prints SOLANA tx + NFT mint + verify URL.
+
+## Bridge (`apps/brain/bridge.py`) key endpoints
+
+```
+POST /v1/chat/completions   OpenAI-shape stream to Vapi (router model lives upstream)
+POST /ask_brain             tool forwarder; fire-and-forget to Hermes
+POST /check_task            tool; task registry lookup
+POST /mint_credential       tool forwarder; fire-and-forget to cred-agent :9010
+GET  /tasks?call_id=...     UI polls this; Electron task panel auto-completes rows
+GET  /health
+```
+
+Design patterns:
+- **Fire-and-forget**: tool handler returns `<ACK#tNNN>` in <5ms, dispatches background work via `asyncio.create_task(...)`, injects final answer via Vapi `monitor.controlUrl` POST `{type:"say", ...}` when done. Prevents Vapi 30s tool timeouts.
+- **Task registry**: per-call-id list of `{id, question, status, result, result_full, started_at, finished_at}`. Exposed on `GET /tasks` for the Electron UI poller.
+- **Response cap**: `_cap_reply(reply)` truncates at last sentence boundary before 240 chars (TTS-friendly). Full uncapped text preserved in `result_full` for the UI card.
+
+## UI (`drafts/shruti/app/`)
+
+Shruti's Electron + React + three.js holographic avatar app.
+
+- **Push-to-talk**: SPACE held = mic open. SPACE released = muted. `vapiClient.ts` tracks `desiredMuted` and re-asserts on every `call-start` (fixes mic-open-on-reconnect bug).
+- **Interrupt**: SPACE press also calls `vapi.send({type:'control', control:'mute-assistant'})` → 120ms → `unmute-assistant`. Instant barge-in.
+- **Task panel**: `src/ui/TaskPanel.tsx` + `src/tasks/tasks.ts` + `src/tasks/poller.ts`. When a new task fires, drawer auto-peeks open (notification animation) then auto-closes after 3s. Poller hits `GET /tasks?call_id=<X>` every 1.5s while any task is running.
+- **Bridge → UI wire**: `voiceBridge.ts` parses Vapi `tool-calls` + `tool-calls-result` events, maps server task state → UI task rows. Handles `<ACK#tNNN>` (no-op), "just finished" (complete), "Still on" (progress), "snag/error/failed" (fail).
+- **Jaw rotation mouth**: `hologramMaterial.ts` (Shruti's latest). Jaw swings around a hinge below ears, lip corners anchored, upper lip moves ~10% of lower.
+
+## Services + files summary
+
+### `apps/brain/`
+- `bridge.py` — FastAPI :8000, the Vapi bridge
+- `setup_vapi.py` — syncs assistant definitions onto Vapi via REST API. `_merge_preserving` keeps user-managed voice + model-core fields.
+- `hermes-home/default/SOUL.md` — Hermes identity, tool routing rules for Canvas/Workspace/news. ≤2-sentence hard cap on replies.
+- `hermes-home/default/config.yaml` — Hermes MCPs: canvas + workspace, both via env-driven tunnels.
+- `.env` — `ANTHROPIC_API_KEY`, `CANVAS_API_KEY`, `VAPI_PRIVATE_KEY` (gitignored)
+- `NOVA_ROUTER.md` — Vapi router system prompt (slim, routing-focused)
+
+### `apps/cred-agent/`
+- See table above
+- `.env` — `STUDENT_PRIVATE_KEY_BASE58`, `STUDENT_PUBLIC_KEY_BASE58`, `CANVAS_API_KEY`, R2 creds (gitignored)
+- `scripts/gen_keypair.py` — one-shot Ed25519 keypair generator
+- `scripts/cron_mint.py` — reconciles pending items → Solana (for batch end-of-semester mints)
+- `scripts/mint.sh` — fireable one-command mint
+
+### `apps/browser-agent/` (Abishek)
+- Canvas MCP + REST on :9001
+- Playwright + TinyFish CDP for scraping
+- Needs new: `POST /screenshot` and `POST /myasu/login + GET /myasu/snapshot` per `context/abishek-screenshot-myasu-patch.md`
+
+### `apps/google-agent/` (Abishek)
+- Gmail + Calendar + Drive on :9005
+- Currently `WORKSPACE_BACKEND=mock` — real OAuth deferred
+
+### `drafts/amrita-current-events/` (Amrita)
+- RSS news pool on :9004
+- News + ASU events tools exposed
+
+### `drafts/shruti/app/` (Shruti)
+- Electron holographic avatar
+- Current latest: jaw-rotation mouth (`64b7f4e`)
+
+## Shared env (`shared.env` — tracked, non-secret)
+
+```
+VAPI_ASSISTANT_ID=f6bd0e01-6592-4ff9-98e8-4a90456441a9
+VAPI_SHRUTI_ASSISTANT_ID=ca586ee1-e4e2-4148-a51b-f60d9737c00f
+PUBLIC_BRAIN_BASE=https://posts-restructuring-oriental-integral.trycloudflare.com
+PUBLIC_CANVAS_BASE=https://establish-editorials-template-occupations.trycloudflare.com
+PUBLIC_WORKSPACE_BASE=<tunnel>
+BRAIN_PORT=8000
+```
+
+## Honest open blockers / punted items
+
+- **MyASU scraping**: Abishek needs to apply `context/abishek-screenshot-myasu-patch.md` to his browser-agent. Until then, credentials embed Canvas data only, no GPA. Screenshot witness is also unavailable (my `browser_client` → 404 → graceful fallback to witnessless mint).
+- **Screenshot witness coordinate**: if Abishek ships `/screenshot`, we still need to know WHICH Canvas URL to screenshot per mint type. Simplest: hardcode `/grades` in cred-agent. Cleaner: make `mint_credential` accept a `page` arg → cred-agent maps `"grades" | "transcript"` → URL.
+- **Supermemory**: integrated into Hermes profile but not actively used by the voice loop yet. Live demo plan still relies on the "pre-seed 6 weeks of synthetic sessions" trick.
+- **Gmail OAuth**: still mocked. Real OAuth 2-3h; mock is fine for stage.
+- **Nova.app Electron** has pre-existing lint noise on `vapiClient.ts` when linted in isolation (`--jsx` / `import.meta.env` warnings). Project-level `npm run typecheck` is clean. Don't be fooled by LSP diagnostics on individual files.
+
+## Latency budget (observed, honest)
+
+| Turn type | Time | Notes |
+|---|---|---|
+| Small talk ("hi", "thanks") | <1s | Router handles, no brain |
+| Canvas lookup ("what's due") | 8-10s | Hermes + MCP; filler masks it |
+| Gmail (mock) | 8-10s | Same as Canvas |
+| News headlines | 11-13s | Hermes + Amrita's RSS |
+| Mint credential | 6-15s | Canvas fetch + sign + Solana + R2 + Metaplex NFT (2 txs waited for confirmed) |
+
+## Git state
+
+- Branch: `main`
+- Latest commit: `01084e3 voice: enforce mute until SPACE (fix mic-open-on-call-start bug)` (exact SHA may drift — run `git log -1` for current)
+- Shruti's latest UI commit pulled: `64b7f4e shruti: natural talking mouth — jaw rotation with anchored corners`
+- Autosync via `.git-autosync.sh` runs periodically; manual `git pull --rebase --autostash` + `git push` cadence in practice

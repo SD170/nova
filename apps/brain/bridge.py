@@ -600,11 +600,13 @@ async def ask_brain(request: Request):
             )
             results.append({
                 "toolCallId": tc_id,
-                # Internal ack. NOT meant to be spoken verbatim — the router
-                # already said its own bridge line before firing the tool.
-                # This string is kept short + factual so if the model DOES
-                # leak it, it sounds like a status line, not a filler.
-                "result": f"[queued:{task['id']}]",
+                # Opaque internal ack — specifically chosen to look like a
+                # machine token, not a sentence. The router model should NOT
+                # speak this out loud; NOVA_ROUTER.md forbids paraphrasing it.
+                # If it leaks, it sounds like a stray token and the user hears
+                # something obviously wrong, which is better than a plausible
+                # filler that masks a missing tool call.
+                "result": f"<ACK#{task['id']}>",
             })
 
     return JSONResponse({"results": results})

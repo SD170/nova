@@ -89,6 +89,7 @@ interface VapiLike {
   on(event: string, fn: (...args: any[]) => void): void
   removeListener?(event: string, fn: (...args: any[]) => void): void
   off?(event: string, fn: (...args: any[]) => void): void
+  isMuted?(): boolean
 }
 
 export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
@@ -127,12 +128,22 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
     [
       'message',
       (m: any) => {
+        // Gate user-speech signals on the mic state. Vapi's web SDK keeps
+        // emitting partial transcripts + speech-update frames even while the
+        // local audio track is muted (Daily VAD stays attached to the
+        // suspended track), so the avatar flickers into 'listening' between
+        // SPACE presses. We only trust user-speech events when the mic is
+        // actually open.
+        const micOpen = vapi.isMuted ? vapi.isMuted() === false : true
         if (m?.type === 'speech-update' && m.role === 'user') {
+          if (!micOpen) return
           if (m.status === 'started') hooks.userSpeechStart()
           else if (m.status === 'stopped') hooks.userSpeechEnd()
         } else if (m?.type === 'transcript' && m.role === 'user' && m.transcriptType === 'partial') {
+          if (!micOpen) return
           hooks.userSpeechStart()
         } else if (m?.type === 'transcript' && m.role === 'user' && m.transcriptType === 'final') {
+          if (!micOpen) return
           hooks.userSpeechEnd()
         } else if (m?.type === 'tool-calls' || m?.type === 'function-call') {
           hooks.toolCallStart()

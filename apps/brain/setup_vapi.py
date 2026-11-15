@@ -135,16 +135,10 @@ def nova_config(shruti_id: str) -> dict:
     to Hermes via the `ask_brain` function tool (ASK_BRAIN_URL).
     """
     return {
-        "name": "Nova",
-        "firstMessage": "Hey, Nova here. What do you need?",
-        "voice": {
-            "provider": "vapi",
-            "voiceId": "Rohan",          # Indian male — warm, confident
-        },
+        # IMPORTANT: 'voice' + 'model.provider' + 'model.model' + 'model.temperature'
+        # are user-managed in the Vapi dashboard. This script NEVER sets them.
+        # merge_preserving() keeps whatever the live assistant has.
         "model": {
-            "provider": "openai",
-            "model": "gpt-4o-mini",             # Vapi-native, sub-second router
-            "temperature": 0.4,
             "messages": [{
                 "role": "system",
                 "content": NOVA_ROUTER_PROMPT,
@@ -195,17 +189,9 @@ def nova_config(shruti_id: str) -> dict:
 
 def shruti_config(nova_id: str) -> dict:
     return {
-        "name": "Shruti",
-        "firstMessage": "Hey hey, it's me, Shruti. What's up?",
-        "voice": {
-            "provider": "vapi",
-            "voiceId": "Rohan",          # Indian male — warm, confident
-            "speed": 0.95,
-        },
+        # IMPORTANT: 'voice' + 'model.provider' + 'model.model' + 'model.temperature'
+        # are user-managed in the Vapi dashboard. This script NEVER sets them.
         "model": {
-            "provider": "openai",
-            "model": "gpt-4o-mini",
-            "temperature": 0.6,
             "messages": [{
                 "role": "system",
                 "content": (
@@ -280,9 +266,40 @@ def upsert(existing: dict | None, cfg: dict, label: str) -> dict:
     if existing:
         existing_id = existing["id"]
         print(f"→ patch {label}: {existing_id}")
-        return api("PATCH", f"/assistant/{existing_id}", cfg)
+        merged = _merge_preserving(existing, cfg)
+        return api("PATCH", f"/assistant/{existing_id}", merged)
     print(f"→ create {label}")
     return api("POST", "/assistant", cfg)
+
+
+# Fields we NEVER want to override on an existing assistant — the user manages
+# these directly in the Vapi dashboard. If an update comes from this script
+# without an explicit value, we fall back to whatever Vapi has today.
+_PRESERVE_TOP = {"name", "firstMessage", "voice"}
+_PRESERVE_MODEL = {"provider", "model", "temperature"}
+
+
+def _merge_preserving(existing: dict, patch: dict) -> dict:
+    """Build a PATCH body that preserves user-managed voice + model-core fields.
+
+    - Top-level user-managed fields (`name`, `firstMessage`, `voice`) default
+      to the existing assistant's value if our patch doesn't set them.
+    - Inside `model`, `provider`/`model`/`temperature` default to existing
+      values. Our updates to `messages` and `tools` win.
+    """
+    out = dict(patch)
+    for k in _PRESERVE_TOP:
+        if k not in out and k in existing:
+            out[k] = existing[k]
+    if "model" in patch or "model" in existing:
+        existing_model = existing.get("model") or {}
+        patch_model = patch.get("model") or {}
+        merged_model = dict(patch_model)
+        for k in _PRESERVE_MODEL:
+            if k not in merged_model and k in existing_model:
+                merged_model[k] = existing_model[k]
+        out["model"] = merged_model
+    return out
 
 
 def main() -> None:
@@ -297,7 +314,9 @@ def main() -> None:
 
     # Nova: patch the existing assistant, now that Shruti has a real id.
     print(f"\n[Nova] patching existing VAPI_ASSISTANT_ID={NOVA_ID}")
-    nova = api("PATCH", f"/assistant/{NOVA_ID}", nova_config(shruti["id"]))
+    nova_existing = api("GET", f"/assistant/{NOVA_ID}")
+    nova_body = _merge_preserving(nova_existing, nova_config(shruti["id"]))
+    nova = api("PATCH", f"/assistant/{NOVA_ID}", nova_body)
     print(f"  name: {nova.get('name')}  voice: {nova.get('voice', {}).get('voiceId')}")
 
     print("\nWrite these to shared.env:")

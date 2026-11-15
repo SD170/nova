@@ -202,25 +202,44 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
                                  full_page: bool = True) -> dict:
         import base64
         svc = get_svc()
-        ctx = getattr(svc.backend, "_ctx", None)
-        if ctx is None:
-            return {"error": "browser context not open; call sync_canvas once first"}
         if (path is None) == (url is None):
             return {"error": "pass exactly one of `path` or `url`"}
         target = url or (svc.settings.canvas_base_url.rstrip("/") + path)
-        page = await ctx.new_page()
+        # Open browser on-demand if sync isn't currently holding one. Reuse the
+        # existing context when present (fastest + preserves SSO cookies).
+        opened_here = False
+        if getattr(svc.backend, "_ctx", None) is None:
+            try:
+                await svc.backend.open_session()
+                opened_here = True
+            except Exception as e:
+                return {"error": f"could not open browser: {e}"}
+        ctx = getattr(svc.backend, "_ctx", None)
+        if ctx is None:
+            return {"error": "open_session didn't leave a context"}
         try:
-            await page.goto(target, wait_until="networkidle", timeout=20_000)
-            if selector:
-                handle = await page.wait_for_selector(selector, timeout=20_000, state="attached")
-                if handle is None:
-                    return {"error": f"selector not found: {selector!r}"}
-                await handle.scroll_into_view_if_needed()
-                png = await handle.screenshot(type="png")
-            else:
-                png = await page.screenshot(full_page=full_page, type="png")
+            page = await ctx.new_page()
+            try:
+                await page.goto(target, wait_until="networkidle", timeout=20_000)
+                if selector:
+                    handle = await page.wait_for_selector(
+                        selector, timeout=20_000, state="attached")
+                    if handle is None:
+                        return {"error": f"selector not found: {selector!r}"}
+                    await handle.scroll_into_view_if_needed()
+                    png = await handle.screenshot(type="png")
+                else:
+                    png = await page.screenshot(full_page=full_page, type="png")
+            finally:
+                await page.close()
         finally:
-            await page.close()
+            # If we opened the browser just for this call, close it so we
+            # don't tie up the TinyFish profile. If sync owned it, leave it.
+            if opened_here:
+                try:
+                    await svc.backend.close_session()
+                except Exception:
+                    pass
         return {"png_b64": base64.b64encode(png).decode(),
                 "target_url": target, "selector": selector, "bytes": len(png)}
 

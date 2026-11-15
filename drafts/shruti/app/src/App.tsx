@@ -7,6 +7,7 @@ import './tasks/tasks' // registers window.jarvisTasks
 import { initTaskPoller } from './tasks/poller'
 import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { TaskPanel } from './ui/TaskPanel'
+import { ActivityChip } from './ui/ActivityChip'
 import { BootTitle } from './ui/BootTitle'
 import { Hud } from './ui/Hud'
 // Nova Desk (side panel): only loads when VITE_NOVA_BASE is set, lazily, inside an error guard, so a
@@ -240,6 +241,7 @@ export default function App() {
       <Hint visible={hintVisible} />
       <div className={`ui-layer ${mode === 'boot' ? 'ui-layer--hidden' : ''}`}>
         <Hud />
+        <ActivityChip />
         <TaskPanel />
         {import.meta.env.VITE_NOVA_BASE ? (
           <DeskGuard>

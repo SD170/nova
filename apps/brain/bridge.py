@@ -993,6 +993,124 @@ async def list_tasks(request: Request):
     return resp
 
 
+# ──── API-activity event bus (sponsor-track telemetry) ─────────────────
+# Any service in the fleet (cred-agent, browser-agent, google-agent, or
+# the bridge itself) can POST /events_push  → we fan-out via SSE to the UI
+# chip. Not persisted beyond a 200-event ring buffer. In-memory only.
+#
+# Event shape (keep small — rendered as a toast):
+#   {
+#     "id": "evt_...",
+#     "provider": "tinyfish" | "supermemory" | "mongodb" | "gemini" |
+#                 "r2" | "solana" | "metaplex" | "canvas-mcp" | "gmail" |
+#                 "calendar" | "hermes" | "news" | "other",
+#     "tool": "<human-readable action>",
+#     "status": "start" | "ok" | "error",
+#     "ms": <int>,       # latency; omit on 'start'
+#     "ts": <epoch>,     # when this event was emitted
+#     "note": "..."      # optional short detail
+#   }
+#
+# Why not emit from Hermes directly: Hermes is a subprocess with no
+# back-channel to the bridge. Services the bridge already knows about
+# (cred-agent + the workspace/canvas services via HTTP hooks) push here.
+
+import collections
+_events_ring: collections.deque = collections.deque(maxlen=200)
+_event_subscribers: set[asyncio.Queue] = set()
+_event_counter = 0
+
+
+def _emit_event(provider: str, tool: str, status: str = "ok",
+                ms: int | None = None, note: str | None = None) -> None:
+    """Internal API-activity emitter. Call from anywhere in the bridge
+    around outbound HTTP (e.g. Vapi monitor fetch, cred-agent forwarder).
+    Fan-outs to every SSE subscriber. Non-blocking."""
+    global _event_counter
+    _event_counter += 1
+    ev = {
+        "id": f"evt_{int(time.time()*1000)}_{_event_counter:04d}",
+        "provider": provider,
+        "tool": tool,
+        "status": status,
+        "ts": time.time(),
+    }
+    if ms is not None:
+        ev["ms"] = ms
+    if note:
+        ev["note"] = note[:120]
+    _events_ring.append(ev)
+    # Fan-out. Dropped messages get swallowed (slow subscriber).
+    for q in list(_event_subscribers):
+        try:
+            q.put_nowait(ev)
+        except asyncio.QueueFull:
+            pass
+
+
+@app.post("/events_push")
+async def events_push(request: Request):
+    """Any service pushes an event here. Same shape as _emit_event args.
+    Intended for cred-agent, browser-agent, google-agent to call when
+    they finish a sponsor-relevant outbound HTTP."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+    _emit_event(
+        provider=str(body.get("provider") or "other")[:40],
+        tool=str(body.get("tool") or "?")[:80],
+        status=str(body.get("status") or "ok")[:16],
+        ms=int(body["ms"]) if isinstance(body.get("ms"), (int, float)) else None,
+        note=(body.get("note") or None),
+    )
+    resp = JSONResponse({"ok": True})
+    resp.headers["access-control-allow-origin"] = "*"
+    return resp
+
+
+@app.options("/events_push")
+async def events_push_options():
+    resp = JSONResponse({})
+    resp.headers["access-control-allow-origin"] = "*"
+    resp.headers["access-control-allow-methods"] = "POST, OPTIONS"
+    resp.headers["access-control-allow-headers"] = "content-type"
+    return resp
+
+
+@app.get("/events")
+async def events_stream(request: Request):
+    """SSE stream for the Electron UI. Replays the ring buffer on connect
+    then streams new events as they arrive."""
+    from fastapi.responses import StreamingResponse
+
+    async def gen():
+        # Backfill
+        for ev in list(_events_ring):
+            yield f"data: {json.dumps(ev)}\n\n"
+        q: asyncio.Queue = asyncio.Queue(maxsize=200)
+        _event_subscribers.add(q)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    return
+                try:
+                    ev = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"data: {json.dumps(ev)}\n\n"
+                except asyncio.TimeoutError:
+                    # Heartbeat so proxies don't close the connection.
+                    yield ": ping\n\n"
+        finally:
+            _event_subscribers.discard(q)
+
+    headers = {
+        "cache-control": "no-cache",
+        "access-control-allow-origin": "*",
+        "x-accel-buffering": "no",
+    }
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=headers)
+
+
 # ──── Client-reported user-speech activity. Lets the ask_brain inject
 # ──── wait for silence instead of blind-sleeping 1.8s. UI pings this on
 # ──── every speech-update / transcript event; we store the newest ts

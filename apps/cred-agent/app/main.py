@@ -37,6 +37,7 @@ from .registry import Registry
 from . import r2
 from . import browser_client
 from . import nft_mint
+from . import events as _ev
 
 HERE = pathlib.Path(__file__).parent.parent
 CRED_DIR = HERE / "credentials"
@@ -204,9 +205,11 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
             if not shot_selector:
                 shot_selector = DEFAULT_WITNESS_SELECTOR
         if shot_url or shot_path:
-            png_bytes = browser_client.try_capture(
-                path=shot_path, url=shot_url, selector=shot_selector
-            )
+            with _ev.track("tinyfish", "capture Canvas/MyASU screenshot",
+                            note=(shot_url or shot_path)):
+                png_bytes = browser_client.try_capture(
+                    path=shot_path, url=shot_url, selector=shot_selector
+                )
             if png_bytes is None:
                 # Honest surface — witness is just missing, mint continues
                 src_desc = shot_url or shot_path
@@ -264,7 +267,9 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
     memo = solana_memo.build_memo_body(cred_id, digest_hex, sig_b58)
     priv = os.environ["STUDENT_PRIVATE_KEY_BASE58"]
     try:
-        tx = solana_memo.post_memo(priv, memo)
+        with _ev.track("solana", "Memo program anchor",
+                        note=f"devnet • {cred_id}"):
+            tx = solana_memo.post_memo(priv, memo)
     except Exception as e:
         raise HTTPException(502, f"solana post failed: {e}")
 
@@ -307,11 +312,13 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
         name = body.nft_name or f"Nova Cred {cred_id.split('_')[-1]}"
         symbol = body.nft_symbol or "NOVA"
         try:
-            nft = nft_mint.mint_nft(
-                name=name[:32],       # Metaplex hard cap
-                symbol=symbol[:10],
-                uri=cred_public_url,  # hard cap 200, R2 URL fits easily
-            )
+            with _ev.track("solana", "Metaplex NFT mint",
+                            note=f"devnet • {name[:32]}"):
+                nft = nft_mint.mint_nft(
+                    name=name[:32],       # Metaplex hard cap
+                    symbol=symbol[:10],
+                    uri=cred_public_url,  # hard cap 200, R2 URL fits easily
+                )
             nft_info = {
                 "mint": nft.mint_address,
                 "ata": nft.ata_address,

@@ -10,7 +10,7 @@ from pathlib import Path
 from .models import DocumentNotFound, DocumentResult
 
 MEDIA = {"docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-         "md": "text/markdown"}
+         "md": "text/markdown", "pdf": "application/pdf"}
 
 _INLINE = re.compile(r"(\*\*[^*]+\*\*|\*[^*]+\*)")
 
@@ -75,6 +75,21 @@ class DocumentStore:
         result = DocumentResult(
             id=doc_id, title=title, filename=filename, format=fmt, size_bytes=path.stat().st_size,
             download_url=f"{self.public_base}/files/{doc_id}", created_at=datetime.now(timezone.utc))
+        (self.dir / f"{doc_id}.json").write_text(result.model_dump_json())
+        return result
+
+    def save_bytes(self, title: str, data: bytes, fmt: str = "pdf") -> DocumentResult:
+        """Store an already-built file (the exam-prep PDF)."""
+        if fmt not in MEDIA:
+            raise ValueError(f"unsupported format {fmt!r}")
+        self.dir.mkdir(parents=True, exist_ok=True)
+        doc_id = uuid.uuid4().hex[:12]
+        path = self.dir / f"{doc_id}.{fmt}"
+        path.write_bytes(data)
+        result = DocumentResult(
+            id=doc_id, title=title, filename=f"{_slug(title)}.{fmt}", format=fmt,
+            size_bytes=len(data), download_url=f"{self.public_base}/files/{doc_id}",
+            created_at=datetime.now(timezone.utc))
         (self.dir / f"{doc_id}.json").write_text(result.model_dump_json())
         return result
 

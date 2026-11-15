@@ -20,6 +20,8 @@ from typing import Callable
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .exam import speak_exam, speak_question, speak_score
+from .memory import speak_hits
 from .service import WorkspaceService
 from .voice import (
     cut,
@@ -216,6 +218,117 @@ def build_mcp(get_svc: Callable[[], WorkspaceService]) -> FastMCP:
         "for follow-ups."))
     async def asu_events(days: int = 7, query: str | None = None, limit: int = 5) -> dict:
         return await get_svc().asu_events(days, query, limit)
+
+    # ---------------- exam prep ----------------
+
+    @mcp.tool(description=(
+        "Exam date(s) and topics for one course, read from its syllabus (every date is backed by "
+        "a quote from the syllabus; nothing is guessed). course = 'CSE 540'. Say `speak`."))
+    async def exam_info(course: str) -> dict:
+        info = await get_svc().exam.exam_info(course)
+        return {"speak": speak_exam(info), "course": info.course_code,
+                "exams": [e.model_dump() for e in info.exams], "note": info.note,
+                "data_source": info.data_source}
+
+    @mcp.tool(description=(
+        "Make a short practice quiz (up to 6 multiple-choice questions) from the student's real "
+        "course material, and start a flashcard PDF in the background (a notification appears "
+        "when it is saved). Takes 15-40 seconds. course = 'CSE 540'; topic is optional "
+        "('module 5', 'heaps'). Then ASK the student: voice or side panel? and call quiz_begin."))
+    async def quiz_start(course: str, topic: str | None = None, count: int = 6) -> dict:
+        ex = get_svc().exam
+        quiz = await ex.create_quiz(course, topic, max(3, min(count, 6)))
+        label = topic or f"your {quiz.course_code} material"
+        return {"speak": f"Quiz ready: {len(quiz.questions)} questions on {label}. "
+                         "Voice or side panel?",
+                "quiz_id": quiz.id, "questions": len(quiz.questions), "title": quiz.title,
+                "topics": quiz.topics, "pdf": "being made, a notification appears when saved",
+                "data_source": quiz.data_source}
+
+    @mcp.tool(description=(
+        "Start the quiz. mode='voice': you ask the questions one by one (the result has the first "
+        "question in `speak`: say it as is, then call quiz_answer with what the student says). "
+        "mode='panel': it opens in the side panel and the student answers there; just say "
+        "`speak`. No answers are revealed until the end."))
+    async def quiz_begin(quiz_id: str, mode: str = "voice") -> dict:
+        ex = get_svc().exam
+        quiz = ex.begin(quiz_id, mode)
+        speak = (speak_question(quiz, 0) if mode == "voice"
+                 else "Opened it in your side panel. Tap your answers there.")
+        return {"speak": speak, "quiz_id": quiz.id, "mode": mode, "total": len(quiz.questions),
+                "data_source": quiz.data_source}
+
+    @mcp.tool(description=(
+        "Voice quiz: record the student's answer to the current question ('A', 'B', 'C', 'D' or "
+        "the option text). Result `speak` is the NEXT question, or the final score when done. "
+        "Do not reveal whether an answer was right; just ask the next one. Say `speak` as is."))
+    async def quiz_answer(quiz_id: str, answer: str) -> dict:
+        ex = get_svc().exam
+        quiz, finished = await ex.answer(quiz_id, answer)
+        if finished:
+            return {"speak": speak_score(quiz), "done": True, "score": quiz.score,
+                    "total": len(quiz.questions), "data_source": quiz.data_source}
+        i = ex.next_index(quiz)
+        return {"speak": speak_question(quiz, i), "done": False, "index": i,
+                "total": len(quiz.questions), "data_source": quiz.data_source}
+
+    @mcp.tool(description=(
+        "Where the quiz stands (latest quiz if no id): which question is next, the score if "
+        "finished, and whether the flashcard PDF is saved. Say `speak`."))
+    async def quiz_status(quiz_id: str | None = None) -> dict:
+        ex = get_svc().exam
+        quiz = ex.get(quiz_id) if quiz_id else ex.latest()
+        if not quiz:
+            return {"speak": "There's no quiz yet. Want me to make one?"}
+        pdf = {"saved": "The cards PDF is saved.", "pending": "The cards PDF is still being made.",
+               "failed": "The cards PDF failed."}[quiz.pdf_status]
+        if quiz.status == "done":
+            speak = f"{speak_score(quiz)} {pdf}"
+        elif quiz.status == "in_progress":
+            speak = f"{len(quiz.answers)} of {len(quiz.questions)} answered. {pdf}"
+        else:
+            speak = f"The quiz is ready. {pdf}"
+        return {"speak": speak, "quiz_id": quiz.id, "status": quiz.status, "mode": quiz.mode,
+                "answered": len(quiz.answers), "total": len(quiz.questions), "score": quiz.score,
+                "pdf_status": quiz.pdf_status, "data_source": quiz.data_source}
+
+    # ---------------- memory (supermemory) ----------------
+
+    @mcp.tool(description=(
+        "What the student's long-term memory says about them (preferences, goals, weak topics, "
+        "applications). Call it ONCE at the start of a conversation and use it silently to "
+        "personalize; do not recite it. Say `speak` only if the student asks what you know."))
+    async def memory_profile() -> dict:
+        p = await get_svc().memory.profile()
+        facts = (p["static"] + p["dynamic"])[:3]
+        speak = ("I know: " + " ".join(cut(f, 80).rstrip(".") + "." for f in facts)) if facts \
+            else "I don't know much about you yet."
+        return {"speak": speak, "static": p["static"][:8], "recent": p["dynamic"][:6]}
+
+    @mcp.tool(description=(
+        "Search long-term memory by meaning: 'what am I weak at', 'what did I say about internships'. "
+        "Say `speak` (one or two remembered facts)."))
+    async def memory_recall(query: str, limit: int = 5) -> dict:
+        hits = await get_svc().memory.recall(query, limit)
+        return {"speak": speak_hits(hits), "results": [h.model_dump() for h in hits[:5]]}
+
+    @mcp.tool(description=(
+        "Save ONE durable fact about the student in a short third-person sentence: a preference "
+        "('prefers studying in the evening'), goal ('wants an AI internship next summer'), struggle "
+        "('struggles with AVL rotations') or decision. Not passwords, not one-off chatter, not email "
+        "contents. Quiz results are saved automatically, do not save them again."))
+    async def memory_remember(fact: str, kind: str = "fact") -> dict:
+        if len(fact.strip()) < 8:
+            raise ValueError("Give a full short sentence to remember.")
+        doc_id = await get_svc().memory.remember(fact.strip(), kind=kind)
+        return {"speak": "Got it, I'll remember that.", "id": doc_id}
+
+    @mcp.tool(description=(
+        "Forget memories about something, by meaning ('forget what I said about Project X'). Confirm "
+        "with the student first."))
+    async def memory_forget(query: str) -> dict:
+        await get_svc().memory.forget(query)
+        return {"speak": "Okay, I've forgotten that."}
 
     # ---------------- research + documents ----------------
 

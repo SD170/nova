@@ -190,7 +190,7 @@ class DocumentResult(BaseModel):
     id: str
     title: str
     filename: str
-    format: Literal["docx", "md"]
+    format: Literal["docx", "md", "pdf"]
     size_bytes: int
     download_url: str
     created_at: datetime
@@ -248,3 +248,11 @@ class ResearchUnavailable(Exception):
 
 class DocumentNotFound(Exception):
     pass
+
+
+class QuizNotFound(Exception):
+    pass
+
+
+class MemoryUnavailable(Exception):
+    """Supermemory is not set up, unreachable, or rejected the key."""

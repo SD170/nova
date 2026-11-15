@@ -8,7 +8,9 @@ TOOLS = {"gmail_inbox_summary", "gmail_new_since", "gmail_search", "gmail_get_me
          "gmail_create_draft", "calendar_list_events", "calendar_free_busy",
          "calendar_create_event", "calendar_sync_canvas", "calendar_auto_sync",
          "research_company", "save_document", "get_workspace_health",
-         "news_headlines", "asu_events"}
+         "news_headlines", "asu_events", "exam_info", "quiz_start", "quiz_begin",
+         "quiz_answer", "quiz_status", "memory_profile", "memory_recall",
+         "memory_remember", "memory_forget"}
 
 
 def rpc(c, method, params=None, headers=None, rid=1):

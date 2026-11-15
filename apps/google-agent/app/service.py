@@ -12,6 +12,8 @@ from .canvas_sync import CanvasClient, counts, desired_events, plan
 from .classify import Classification, Classifier
 from .config import Settings
 from .documents import DocumentStore
+from .exam import ExamPrep, speak_question, speak_score
+from .feed import Feed
 from .freebusy import compute_free
 from .gist import Gister
 from .models import (
@@ -35,6 +37,7 @@ from .models import (
     RawEmail,
     SyncPlan,
 )
+from .memory import MemoryClient, speak_hits
 from .news import NewsClient
 from .research import CompanyResearcher
 from .voice import ago, short_sender, short_subject
@@ -65,7 +68,8 @@ class StateStore:
 class WorkspaceService:
     def __init__(self, settings: Settings, backend: WorkspaceBackend, classifier: Classifier,
                  canvas: CanvasClient, researcher: CompanyResearcher, docs: DocumentStore,
-                 gister: Gister, news: NewsClient):
+                 gister: Gister, news: NewsClient, exam: ExamPrep, feed: Feed,
+                 memory: MemoryClient):
         self.settings = settings
         self.backend = backend
         self.classifier = classifier
@@ -74,6 +78,9 @@ class WorkspaceService:
         self.docs = docs
         self.gister = gister
         self.news = news
+        self.exam = exam
+        self.memory = memory
+        self.feed = feed
         self.tz = ZoneInfo(settings.timezone)
         self.state = StateStore(settings.state_path)
         self.last_error: str | None = None

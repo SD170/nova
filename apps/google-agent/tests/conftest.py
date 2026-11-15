@@ -114,3 +114,118 @@ def fake_news(monkeypatch):
 
     monkeypatch.setattr(NewsClient, "_get", _get)
     return state
+
+
+# ---------------- exam prep fakes ----------------
+
+SYLLABUS = ("[page 1]\nCSE 540 Syllabus. Grading and policies.\n\n[page 5]\n"
+            "Important dates\nFinal Exam  Dec 1, 2026 Dec 4, 2026\nThe final covers all modules. "
+            + "Filler text about attendance and academic integrity. " * 8)
+SLIDES = ("[page 1]\nA binary min-heap is a complete binary tree where each parent is less than or "
+          "equal to its children.\n\n[page 2]\nInsert bubbles up and extract-min bubbles down; "
+          "both operations take O(log n) time. Building a heap from n items takes O(n) time.\n\n"
+          "[page 3]\nAn AVL tree rebalances itself with single or double rotations after an insert, "
+          "keeping search time at O(log n). Hash tables resolve collisions by chaining or by open "
+          "addressing with probing. " * 2)
+TEXTS = {"syl": SYLLABUS, "f1": SLIDES}
+
+
+def _q(q, opts, ans, quote, topic="heaps", page=1):
+    return {"q": q, "options": opts, "answer": ans, "explanation": "From the slides.",
+            "topic": topic, "source_title": "Module 5 Slides.pdf", "source_quote": quote, "page": page}
+
+
+GOOD_QUESTIONS = [
+    _q("In a min-heap, a parent is what vs its children?", ["Smaller or equal", "Larger", "Random", "Equal only"], 0, "each parent is less than or equal to its children"),
+    _q("Time to insert into a heap?", ["O(1)", "O(log n)", "O(n)", "O(n^2)"], 1, "both operations take O(log n) time"),
+    _q("Time to build a heap from n items?", ["O(n)", "O(n log n)", "O(log n)", "O(1)"], 0, "Building a heap from n items takes O(n) time"),
+    _q("What rebalances an AVL tree?", ["Rotations", "Hashing", "Sorting", "Chaining"], 0, "rebalances itself with single or double rotations", "AVL trees", 3),
+    _q("AVL search time is?", ["O(n)", "O(log n)", "O(1)", "O(n^2)"], 1, "keeping search time at O(log n)", "AVL trees", 3),
+    _q("A way to handle hash collisions?", ["Chaining", "Rotation", "Heapify", "Bubbling"], 0, "resolve collisions by chaining or by open addressing", "hashing", 3),
+]
+BAD_QUESTIONS = [
+    _q("Invented question?", ["a", "b", "c", "d"], 0, "this sentence is not in the course material at all"),   # dropped: no quote
+    {"q": "Only three options?", "options": ["a", "b", "c"], "answer": 0, "source_title": "x",
+     "source_quote": "each parent is less than or equal to its children"},                              # dropped: 3 options
+]
+
+
+@pytest.fixture
+def fake_exam(monkeypatch):
+    """Canvas materials + Gemini stand-ins for exam prep. state['quiz_rows'] / ['exam_rows'] are editable."""
+    import app.exam as exam_mod
+
+    state = {"quiz_rows": GOOD_QUESTIONS + BAD_QUESTIONS, "exam_rows": [
+        {"name": "Final Exam", "date_text": "Dec 1, 2026 Dec 4, 2026", "topics": ["all modules"],
+         "source_title": "CSE 540 Syllabus", "page": 5, "quote": "Final Exam Dec 1, 2026 Dec 4, 2026"},
+        {"name": "Midterm", "date_text": "Oct 5", "topics": [], "source_title": "CSE 540 Syllabus",
+         "quote": "the midterm is on October fifth for everyone"}],   # invented: must be dropped
+        "calls": []}
+
+    async def courses(self):
+        return [{"id": "c540", "code": "CSE 540", "name": "Engineering Blockchain Applications"},
+                {"id": "c507", "code": "BMI/BME/CEN/CSE507-494", "name": "Medical Imaging"}], {"data_source": "live"}
+
+    async def materials(self, course_id, topic_hint=None, this_week=False):
+        mats = [{"id": "syl", "type": "syllabus", "title": "CSE 540 Syllabus", "module": None, "text_status": "ready"},
+                {"id": "f1", "type": "pdf", "title": "Module 5 Slides.pdf", "module": "Module 5", "text_status": "ready"},
+                {"id": "lnk", "type": "link", "title": "A link", "module": "Module 5", "text_status": "link_only"}]
+        return mats, {"data_source": "live"}
+
+    async def material_text(self, material_id, max_chars=12_000):
+        return {"text": TEXTS[material_id][:max_chars]}
+
+    async def fake_gemini(api_key, models, system, user_text, schema, timeout=30, temperature=0, retries=0):
+        state["calls"].append(system[:20])
+        state["last_user_text"] = user_text
+        return state["exam_rows"] if system.startswith("From the syllabus") else state["quiz_rows"]
+
+    monkeypatch.setattr(CanvasClient, "courses", courses)
+    monkeypatch.setattr(CanvasClient, "materials", materials)
+    monkeypatch.setattr(CanvasClient, "material_text", material_text)
+    monkeypatch.setattr(exam_mod, "gemini_json", fake_gemini)
+    return state
+
+
+# ---------------- supermemory fake ----------------
+
+@pytest.fixture
+def fake_memory(monkeypatch):
+    """Supermemory stand-in (no network). state['docs'] holds what was saved."""
+    from app.memory import MemoryClient
+
+    state = {"docs": [], "static": ["Prefers short spoken answers"], "error": None, "calls": []}
+
+    def words(t):
+        return {w for w in "".join(ch.lower() if ch.isalnum() else " " for ch in t).split() if len(w) > 2}
+
+    async def _req(self, method, path, body=None):
+        from app.models import MemoryUnavailable
+        state["calls"].append((method, path))
+        if state["error"]:
+            raise MemoryUnavailable(state["error"])
+        body = body or {}
+        if method == "POST" and path == "/document":
+            state["docs"] = [d for d in state["docs"] if d["id"] != body["id"]]
+            state["docs"].append({"id": body["id"], "content": body["content"], "metadata": body.get("metadata", {})})
+            return {"id": body["id"], "status": "queued"}
+        if method == "POST" and path == "/search":
+            q = words(body["query"])
+            scored = sorted(((len(q & words(d["content"] + " " + str(d["metadata"]))), d) for d in state["docs"]),
+                            key=lambda x: -x[0])
+            return {"results": [{"chunk": d["content"], "metadata": d["metadata"], "similarity": 0.8,
+                                 "system": {"createdAt": "2026-11-15T12:00:00Z"}}
+                                for n, d in scored if n > 0][: body.get("limit", 5)]}
+        if method == "POST" and path == "/profile":
+            return {"profile": {"static": state["static"], "dynamic": []}}
+        if method == "DELETE" and path == "/memories/semantic":
+            q = words(body["query"])
+            state["docs"] = [d for d in state["docs"] if not (q & words(d["content"]))]
+            return {}
+        if method == "POST" and path.startswith("/list/documents"):
+            return {"documents": [{"id": d["id"], "summary": d["content"], "metadata": d["metadata"]}
+                                  for d in state["docs"]]}
+        return {}
+
+    monkeypatch.setattr(MemoryClient, "_req", _req)
+    return state

@@ -143,6 +143,33 @@ POST /chat
 }
 ```
 
+## supermemory — killer demo (the line we rehearse)
+
+User: *"Jarvis, quiz me for Monday's exam."*
+
+Jarvis: *"Skipping convolution — you got 9/10 on HW4 and the prof's email last Tuesday said it won't be on the exam. Phase shifts — you missed 3 of 4 in HW3 and your notes from Oct 12 said 'I don't get this' — starting here. Question 1..."*
+
+Why this is **the** supermemory demo, not something else:
+
+- One sentence in, dense magic out. User never pasted HW scores, prof email, or personal notes — the system was there alongside them for weeks.
+- Four *different kinds* of atomic facts fused in one decision:
+  - graded assignment memory (HW4 → 9/10)
+  - inbox-ingested memory (prof email Tuesday)
+  - prior quiz performance memory (HW3 → 3/4 missed)
+  - personal note memory with sentiment (Oct 12 note "I don't get this")
+- Memory *as behavior*, not storage. The agent didn't recall a fact — it changed what it did because of a fact. Judges feel the difference.
+
+**Judge-killer Q we have to answer on stage:** *"How is this different from a system prompt with pasted notes?"*
+Answer: atomic facts, not blobs. supermemory extracts "struggled with phase shifts" as a discrete, updatable, decayable fact — contradictions resolve ("got it right in Q4(b) yesterday → update confidence"). Prompt-pasting has no state evolution.
+
+**Build requirement:** pre-seed the demo account with ~15 synthetic past sessions over "6 weeks" (HW scores, quiz attempts, a prof email, some notes with sentiment markers). Without the backstory, the magic doesn't exist.
+
+Supporting memory moments to layer in if time:
+
+- **Cross-assignment carryover** — "You wrote a great intro about dynamic programming in HW2. Reuse that framing here." The *voice* persists.
+- **Fix-it-once rule** — first correction ("in this course we use Kleinberg, not Cormen") sticks forever.
+- **Teammate hand-off (Abishek's idea #2)** — "Fork my Jarvis context for CSE 310 to Priya." Her Jarvis gets the course structure + accumulated class understanding, not your personal weak-topic map. Clearly different from sharing notes.
+
 ## My ideas / open questions
 
 - 

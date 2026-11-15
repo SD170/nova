@@ -6,7 +6,7 @@ Hermes (or Claude Code / Cursor) discover the tools from one URL:
     mcp_servers:
       canvas:
         url: ${PUBLIC_CANVAS_BASE}/mcp
-        headers: {X-Jarvis-Key: ${CANVAS_API_KEY}}
+        headers: {X-Canvas-Key: ${CANVAS_API_KEY}}
 
 Tool errors (login expired, unknown id, no text) come back as MCP tool errors with
 a plain-English message the brain can read out.
@@ -38,7 +38,7 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService]) -> FastMCP:
         json_response=True,
         streamable_http_path="/mcp",
         # Host check off: requests arrive via the Cloudflare tunnel host. Access is
-        # guarded by X-Jarvis-Key instead (see KeyGuard).
+        # guarded by X-Canvas-Key instead (see KeyGuard).
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
@@ -121,7 +121,7 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService]) -> FastMCP:
 
 
 class KeyGuard:
-    """ASGI wrapper: require X-Jarvis-Key on /mcp (mounted apps skip FastAPI deps)."""
+    """ASGI wrapper: require X-Canvas-Key on /mcp (mounted apps skip FastAPI deps)."""
 
     def __init__(self, app, expected_key: str):
         self.app = app
@@ -130,9 +130,9 @@ class KeyGuard:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and self.expected:
             headers = dict(scope.get("headers") or [])
-            key = headers.get(b"x-jarvis-key", b"").decode("latin-1")
+            key = headers.get(b"x-canvas-key", b"").decode("latin-1")
             if not hmac.compare_digest(key, self.expected):
-                body = json.dumps({"detail": "Missing or wrong X-Jarvis-Key header"}).encode()
+                body = json.dumps({"detail": "Missing or wrong X-Canvas-Key header"}).encode()
                 await send({"type": "http.response.start", "status": 401,
                             "headers": [(b"content-type", b"application/json")]})
                 await send({"type": "http.response.body", "body": body})

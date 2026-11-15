@@ -63,8 +63,8 @@ def test_errors_are_tool_errors(client):
 
 
 def test_mcp_requires_key(make_client):
-    c = make_client(browser_agent_api_key="s3cret")
+    c = make_client(canvas_api_key="s3cret")
     assert rpc(c, "tools/list").status_code == 401
-    assert rpc(c, "tools/list", headers={"X-Jarvis-Key": "bad"}).status_code == 401
-    r = rpc(c, "tools/list", headers={"X-Jarvis-Key": "s3cret"})
+    assert rpc(c, "tools/list", headers={"X-Canvas-Key": "bad"}).status_code == 401
+    r = rpc(c, "tools/list", headers={"X-Canvas-Key": "s3cret"})
     assert r.status_code == 200 and len(r.json()["result"]["tools"]) == len(TOOLS)

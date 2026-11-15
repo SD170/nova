@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -34,6 +35,9 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Student Jarvis — news & ASU events tools", lifespan=lifespan,
               description="Tool catalog for the Jarvis brain. Send header X-Jarvis-Key when NEWS_AGENT_API_KEY is set.")
+# The team UI (Vite :5173, Electron file://) calls these tools straight from the browser.
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_methods=["GET", "POST"],
+                   allow_headers=["Content-Type", "X-Jarvis-Key"])
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
 
@@ -64,9 +68,10 @@ async def get_available_topics():
 @app.get("/news", dependencies=[Depends(require_key)])
 async def fetch_news(topics: str = Query(..., description="Comma-separated, e.g. world, Phoenix Suns, AI"),
                      since_hours: int = Query(24, ge=1, le=72), trusted_only: bool = True,
-                     per_topic: int = Query(5, ge=1, le=15)):
+                     per_topic: int = Query(5, ge=1, le=15),
+                     live: bool = Query(False, description="true = fetch now (≤60 s old) instead of the 15-min cache")):
     return await _run("fetch_news", {"topics": topics, "since_hours": since_hours,
-                                     "trusted_only": trusted_only, "per_topic": per_topic})
+                                     "trusted_only": trusted_only, "per_topic": per_topic, "live": live})
 
 
 @app.get("/news/candidates", dependencies=[Depends(require_key)])
@@ -88,8 +93,9 @@ async def dedupe_news(items: list[DedupeIn]):
 
 @app.get("/events", dependencies=[Depends(require_key)])
 async def fetch_asu_events(days: int = Query(7, ge=1, le=60), query: str = "", campus: str = "",
-                           limit: int = Query(25, ge=1, le=100)):
-    return await _run("fetch_asu_events", {"days": days, "query": query, "campus": campus, "limit": limit})
+                           limit: int = Query(25, ge=1, le=100), live: bool = False):
+    return await _run("fetch_asu_events", {"days": days, "query": query, "campus": campus, "limit": limit,
+                                           "live": live})
 
 
 @app.get("/tools")

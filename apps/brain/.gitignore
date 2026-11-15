@@ -1,0 +1,32 @@
+# runtime state — each machine has its own
+hermes-home/*/memories/
+hermes-home/*/sessions/
+hermes-home/*/logs/
+hermes-home/*/cache/
+hermes-home/*/audio_cache/
+hermes-home/*/image_cache/
+hermes-home/*/home/
+hermes-home/*/hooks/
+hermes-home/*/cron/
+hermes-home/*/plans/
+hermes-home/*/workspace/
+hermes-home/*/skins/
+hermes-home/*/bin/
+hermes-home/*/auth.lock
+hermes-home/*/auth.json
+hermes-home/*/.env
+hermes-home/*/.no-bundled-skills
+hermes-home/*/.skills_prompt_snapshot.json
+hermes-home/*/.update_check
+hermes-home/*/models_dev_cache.json
+hermes-home/*/state.db*
+hermes-home/*/sessions.db*
+
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/

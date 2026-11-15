@@ -1,4 +1,4 @@
-// Electron main process — opens the Jarvis window.
+// Electron main process — opens the Nova window.
 const { app, BrowserWindow, session, shell, systemPreferences } = require('electron')
 const path = require('path')
 const fs = require('fs')

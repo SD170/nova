@@ -17,7 +17,31 @@ cp .env.example .env                                 # works with every key blan
 uvicorn app.main:app --port 9004                     # docs: http://localhost:9004/docs
 ```
 Student page with phone alerts: http://localhost:9004/
-**Tests:** `pytest` (31 tests, network faked).
+**Tests:** `pytest` (34 tests, network faked).
+
+## Use it from the UI (TypeScript, no visual included)
+
+The UI team copies **`client/newsTools.ts`** (+ `client/useNews.ts` for React) into the app. Zero dependencies; typed to match the JSON exactly.
+
+```ts
+import { fetchNews, fetchAsuEvents, getAvailableTopics, getNewsItem, callNewsTool } from './tools/newsTools'
+import { useLiveNews, useAsuEvents } from './tools/useNews'
+
+const news = await fetchNews('world, Phoenix Suns, AI policy')   // live: fetched now, ≤60 s old
+news.links                     // every article URL
+news.items                     // {title, url, source, published_at, topic, confirmed, outlets, summary}
+news.speak                     // one sentence for TTS
+
+const { news, loading, error, newStories } = useLiveNews(studentTopics)   // auto-refresh every 60 s
+const { events } = useAsuEvents({ days: 7, query: 'career fair' })
+
+await callNewsTool('fetch_news', modelToolCall.arguments)              // route an LLM/voice tool call
+```
+
+Config: `VITE_NEWS_BASE` (default `http://localhost:9004`), `VITE_NEWS_KEY` (only if `NEWS_AGENT_API_KEY` is set), or `configureNewsTools({ baseUrl, apiKey })`.
+CORS allows `http://localhost:5173`, `http://127.0.0.1:5173` and Electron (`null`); change with `NEWS_CORS_ORIGINS`.
+
+**Live data:** `live=true` (the client's default) makes the service fetch right now instead of serving its 15-min cache. Nothing returned is older than 60 s — the 60 s floor keeps a fast-polling UI from hammering the newsrooms. `generated_at` says exactly when the data was fetched.
 
 ## Tools (port 9004)
 
@@ -26,8 +50,8 @@ Auth: if `NEWS_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every tool e
 | Tool | Method + path | Returns |
 |---|---|---|
 | `get_available_topics` | `GET /topics` | sections with their newsrooms + how custom topics work |
-| `fetch_news` | `GET /news?topics=world,Phoenix Suns,AI policy&since_hours=24` | `{count, links: [...], items: [...], by_topic, speak}` |
-| `fetch_asu_events` | `GET /events?days=7&query=career fair&campus=Tempe` | `{count, links: [...], items: [...], sources, speak}` |
+| `fetch_news` | `GET /news?topics=world,Phoenix Suns,AI policy&since_hours=24&live=true` | `{count, links: [...], items: [...], by_topic, speak}` |
+| `fetch_asu_events` | `GET /events?days=7&query=career fair&campus=Tempe&live=true` | `{count, links: [...], items: [...], sources, speak}` |
 | `get_news_item` | `GET /news/item/{id}` | one story + article text (when the publisher allows) |
 | `dedupe_news` | `POST /news/dedupe` | clusters of the same story across outlets |
 | `get_news_health` | `GET /health` | tools, keyed sources on/off, cache, subscribers |
@@ -63,6 +87,7 @@ curl -X POST localhost:9004/tools/call -H "Content-Type: application/json" \
 | `GUARDIAN_API_KEY` / `NYT_API_KEY` / `GNEWS_API_KEY` / `NEWSDATA_API_KEY` / `NEWSAPI_KEY` | empty | Extra news providers |
 | `NEWS_PORT` | `9004` | Port for `python -m app.main` |
 | `NEWS_CACHE_TTL_MINUTES` | `15` | How long fetched news counts as fresh |
+| `NEWS_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173,null` | Browser origins allowed to call the tools |
 | `PUSH_INTERVAL_SECONDS` / `PUSH_ENABLED` | `600` / `1` | Phone-alert check interval / on-off |
 
 ## Code map
@@ -80,8 +105,9 @@ app/
   push.py         Web Push phone alerts (VAPID, subscribers, background loop)
   models.py       all JSON shapes
   config.py       env settings
-static/           student page (PWA): index.html, app.js, style.css, sw.js, manifest, icons
-tests/unit, tests/api, tests/conftest.py   31 tests, no network
+client/           newsTools.ts (typed tool client for the UI) + useNews.ts (React hooks)
+static/           optional student page (PWA): index.html, app.js, style.css, sw.js, manifest, icons
+tests/unit, tests/api, tests/conftest.py   34 tests, no network
 ```
 
 ## Public URL (Cloudflare quick tunnel, same as browser-agent)

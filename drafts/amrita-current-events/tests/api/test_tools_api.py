@@ -97,3 +97,39 @@ def test_page_and_push_routes(client):
     assert client.post("/push/subscribe", json=body).json()["ok"]
     assert client.post("/push/test", json={"endpoint": sub["endpoint"]}).json()["ok"]
     assert client.post("/push/unsubscribe", json={"endpoint": sub["endpoint"]}).json()["ok"]
+
+
+def _age_caches(seconds):
+    from app import events, sources
+    from app.service import service
+    for c in (sources._CACHE, events._cache, service._cache):
+        for k, (t, v) in list(c.items()):
+            c[k] = (t - seconds, v)
+
+
+def test_live_refetches_data_older_than_a_minute(client, fake_network):
+    client.get("/news?topics=world")
+    client.get("/events?days=60")
+    _age_caches(120)              # 2 min old: still "fresh" for the normal 15-min / 5-min caches
+    fake_network.clear()
+    client.get("/news?topics=world")
+    client.get("/events?days=60")
+    assert fake_network == []     # normal calls are served from cache
+    client.get("/news?topics=world&live=true")
+    client.get("/events?days=60&live=true")
+    assert any("asuevents" in c for c in fake_network) and len(fake_network) > 2
+
+
+def test_live_within_a_minute_reuses_fetch(client, fake_network):
+    client.get("/news?topics=world&live=true")
+    fake_network.clear()
+    client.post("/tools/call", json={"name": "fetch_news", "arguments": {"topics": "world", "live": "true"}})
+    assert fake_network == []     # protects sources from a UI polling every few seconds
+
+
+def test_ui_origin_allowed_by_cors(client):
+    r = client.options("/news", headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "GET",
+                                         "Access-Control-Request-Headers": "x-jarvis-key"})
+    assert r.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert "evil.example" not in client.get("/health", headers={"Origin": "https://evil.example"}).headers.get(
+        "access-control-allow-origin", "")

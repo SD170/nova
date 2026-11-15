@@ -17,7 +17,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from .sources import client
+from .sources import MAX_AGE, client
 
 ASU_EVENTS_URL = "https://asuevents.asu.edu/feed-json"
 SDC_BASE = "https://sundevilcentral.eoss.asu.edu"
@@ -38,7 +38,7 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
 
 async def _get_json(key: str, url: str, params: Optional[dict] = None):
     hit = _cache.get(key)
-    if hit and time.time() - hit[0] < CACHE_SECONDS:
+    if hit and time.time() - hit[0] < min(CACHE_SECONDS, MAX_AGE.get()):
         return hit[1]
     async with client() as c:
         r = await c.get(url, params=params, headers={"User-Agent": "Mozilla/5.0 (StudentJarvis events reader)"},
@@ -154,7 +154,11 @@ def _matches(ev: dict, words: list[str]) -> bool:
 
 
 async def fetch(days: int = 7, query: str = "", campus: str = "", limit: int = 25,
-                now: Optional[datetime] = None) -> dict:
+                now: Optional[datetime] = None, live: bool = False) -> dict:
+    """live=True: re-read ASU's feeds unless they were read in the last minute."""
+    if live:
+        from .sources import LIVE_SECONDS
+        MAX_AGE.set(LIVE_SECONDS)
     now = now or datetime.now(timezone.utc)
     horizon = now + timedelta(days=days)
     import asyncio

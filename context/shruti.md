@@ -34,7 +34,7 @@ Build the interface the judges actually see. Push-to-talk voice, TTS, result car
 
 ## Demo script (draft — refine as backend lands)
 
-1. "Jarvis, I have an exam Monday. Am I ready?" → assignment card + topic summary with source links
+1. "Nova, I have an exam Monday. Am I ready?" → assignment card + topic summary with source links
 2. "Quiz me." → quiz card, voice Q, user answers aloud, evaluation card
 3. "Schedule revision." → approval card showing proposed calendar block, user approves → success card
 

@@ -537,3 +537,43 @@ body,
   from { left: -60%; }
   to { left: 130%; }
 }
+
+/* ── listening badge (top center while SPACE held) ─────────── */
+.listening-badge {
+  position: fixed;
+  left: 50%;
+  top: calc(18px + env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 12px;
+  border-radius: 9999px;
+  font: 600 11px/1 Inter, system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #39ff14;
+  background: rgb(5 3 10 / 0.6);
+  border: 1px solid rgb(57 255 20 / 0.5);
+  box-shadow: 0 0 20px rgb(57 255 20 / 0.25);
+  z-index: 40;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.listening-badge--hidden {
+  opacity: 0;
+  transform: translate(-50%, -6px);
+}
+.listening-badge__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #39ff14;
+  box-shadow: 0 0 10px #39ff14;
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.4; transform: scale(0.75); }
+}

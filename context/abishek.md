@@ -11,7 +11,7 @@ Code: `apps/browser-agent/` (FastAPI, port **9001** from `shared.env`) — merge
 - ✅ **Gemini** writes "what to do" steps, topics and notes for each open item.
 - ✅ **Saswata's TODOs 1, 2, 3, 5 done:** `/brief`, `/items/{id}`, `/items/{id}/user-done` (+ undo), public Cloudflare URL with a shared-secret header. Reads never block on a sync any more.
 - ✅ **Course materials (TODO 4) done:** real lists for all 3 courses (269 materials: syllabus, linked syllabus PDFs, lecture PDFs, Canvas pages, links) + plain text on demand with `[page N]` markers.
-- ✅ **MCP (TODO 6) done:** same service also at `/mcp` (streamable-HTTP), 11 tools, same `X-Jarvis-Key`. REST unchanged.
+- ✅ **MCP (TODO 6) done:** same service also at `/mcp` (streamable-HTTP), 11 tools, same `X-Canvas-Key`. REST unchanged.
 - ⏳ **Not built yet:** exam dates from announcements, grades.
 - There is **no Canvas API token** for ASU accounts. All Canvas data comes through a TinyFish browser that is logged in as the student.
 
@@ -41,7 +41,7 @@ Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
                                    │
                                    ▼
  1. TinyFish: open a cloud browser from the saved Browser Context Profile
-    ("Jarvis - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
+    ("Nova - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
  2. Playwright connects to that browser (CDP)                                        ~0.5 s
  3. Read Canvas JSON with the browser's logged-in cookies (read-only):              ~2–5 s
       /api/v1/planner/items     → everything due, ALL courses, one call,
@@ -79,7 +79,7 @@ If a sync fails, the last good snapshot is served. If the ASU login expired: HTT
 ## HTTP contract (for Saswata's orchestrator) — port 9001
 
 **Base URL:** local `http://localhost:9001` · public `PUBLIC_CANVAS_BASE` in `shared.env` (Cloudflare quick tunnel; changes when the tunnel restarts).
-**Auth:** every endpoint except `/health` and `/docs` needs header `X-Jarvis-Key: <BROWSER_AGENT_API_KEY>`. The key is **not in the repo** — Abishek sends it to you directly. In `/docs` use the "Authorize" button.
+**Auth:** every endpoint except `/health` and `/docs` needs header `X-Canvas-Key: <CANVAS_API_KEY>`. The key is **not in the repo** — Abishek sends it to you directly. In `/docs` use the "Authorize" button.
 
 | Brain tool | Method + path | Returns | Speed |
 |---|---|---|---|
@@ -96,7 +96,7 @@ If a sync fails, the last good snapshot is served. If the ASU login expired: HTT
 | `sync_canvas` | `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` (counts incl. `materials`, `materials_with_text`) | 15–45 s |
 | `get_canvas_health` | `GET /health` | `{ok, backend, llm, last_sync, sync_in_progress, last_error}` | instant |
 
-Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` (too large / link / unsupported — use its `url`) · `503 canvas_login_expired` (Abishek re-signs in) · `502` backend failure (see `detail`).
+Errors: `401` missing/wrong `X-Canvas-Key` · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` (too large / link / unsupported — use its `url`) · `503 canvas_login_expired` (Abishek re-signs in) · `502` backend failure (see `detail`).
 **Reads never block on Canvas:** if the cache is stale they return the old data immediately and refresh in the background, so the brain never waits ~30 s mid-conversation. Only the very first call after a fresh start waits for one sync.
 
 **`user-done` semantics (differs slightly from the original TODO 3, on purpose):** Canvas is never written to. The override is stored in `data/user_overrides.json` and **survives re-syncs** (otherwise HW3 would pop back into the to-do list every 30 min while Canvas still says "not submitted"). It is dropped automatically when Canvas shows the item submitted/excused/complete, or when the due date passes. Marking an item that is already done in Canvas is a no-op. The brain should still write "student says HW3 done" to supermemory.
@@ -149,7 +149,7 @@ Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` / `material_n
 `GET /materials/{id}/text` → `{material_id, course_id, course_code, title, type, module, source_url, fetched_at, pages, total_chars, offset, next_offset, text}`. PDF text has `[page N]` markers → cite `source_url` + page. Text is never committed (cached in gitignored `data/materials/`).
 
 ### MCP — same tools at `/mcp` (streamable-HTTP)
-URL `${PUBLIC_CANVAS_BASE}/mcp`, header `X-Jarvis-Key` (401 without). Tools (args → same JSON as REST):
+URL `${PUBLIC_CANVAS_BASE}/mcp`, header `X-Canvas-Key` (401 without). Tools (args → same JSON as REST):
 `get_daily_brief(days)` · `get_todo_list(days, include_done)` · `get_item_details(item_id)` · `mark_item_done_locally(item_id)` · `unmark_item_done(item_id)` · `list_courses()` · `get_course_items(course_id, include_done)` · `get_course_materials(course_id, topic_hint?, this_week?)` · `get_material_text(material_id, offset=0, max_chars=20000)` · `sync_canvas()` · `get_canvas_health()`.
 Errors come back as MCP tool errors with a readable message (e.g. "too_large … use the url"). Tested through the tunnel with the official MCP Python client: reads ≈ 0.1 s.
 
@@ -160,7 +160,7 @@ Errors come back as MCP tool errors with a readable message (e.g. "too_large …
 
 | File | Responsibility |
 |---|---|
-| `app/main.py` | HTTP routes, `X-Jarvis-Key` auth, error mapping (401, 404, 503 login expired, 502). No logic. |
+| `app/main.py` | HTTP routes, `X-Canvas-Key` auth, error mapping (401, 404, 503 login expired, 502). No logic. |
 | `app/service.py` | One sync: `start_sync → courses → items → details (parallel) → end_sync → Gemini batch → classify → overrides → save`. Reads: fresh → instant, stale → instant + background refresh. Also `/brief`, item lookup, user-done/undo, to-do query. |
 | `app/overrides.py` | Student "I already did it" overrides in `data/user_overrides.json`; re-applied after each sync, auto-pruned when Canvas catches up or the due date passes. |
 | `app/backends/base.py` | Contract every backend follows + `CanvasLoginExpired`. |
@@ -172,7 +172,7 @@ Errors come back as MCP tool errors with a readable message (e.g. "too_large …
 | `app/cache.py` | `data/canvas_snapshot.json` (gitignored) + freshness check. |
 | `app/config.py` | Env settings (`.env`, see `.env.example`). |
 | `app/materials.py` | Materials: Canvas modules/files/syllabus → `Material` list, week dates from module names, what to pre-fetch, PDF → text (`pypdf`, `[page N]`), text cache `data/materials/` + slicing. Pure functions. |
-| `app/mcp_server.py` | MCP face: 11 tools over the same `BrowserAgentService` + `X-Jarvis-Key` guard on `/mcp`. |
+| `app/mcp_server.py` | MCP face: 11 tools over the same `BrowserAgentService` + `X-Canvas-Key` guard on `/mcp`. |
 | `scripts/export_mock.py` | Regenerates `mocks/canvas_snapshot.json`. |
 | `tests/unit`, `tests/api`, `tests/fixtures` | 87 tests, no network: classifier, Canvas JSON conversion, Gemini, background refresh, overrides, auth, materials (week parsing, file types, cache, slicing), every endpoint, MCP (discovery, calls, errors, auth). |
 
@@ -203,7 +203,7 @@ Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TI
 TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to apply on your side:
 
 1. **Base URL:** `PUBLIC_CANVAS_BASE` in `shared.env` (Cloudflare quick tunnel). It **changes every time the tunnel restarts** — Abishek updates `shared.env` when it does. Local: `http://localhost:9001`.
-2. **Auth header on every call** (except `/health`, `/docs`): `X-Jarvis-Key: <key>`. The key is **not in the repo** — Abishek sends it to you privately. Put it in `apps/orchestrator/.env` (e.g. `CANVAS_API_KEY=`), never in `shared.env` or code. Missing/wrong key → `401`.
+2. **Auth header on every call** (except `/health`, `/docs`): `X-Canvas-Key: <key>`. The key is **not in the repo** — Abishek sends it to you privately. Put it in `apps/orchestrator/.env` (e.g. `CANVAS_API_KEY=`), never in `shared.env` or code. Missing/wrong key → `401`.
 3. **Tool → endpoint map:** use the "HTTP contract" table above (brain tool name → method + path). Response shapes are exact there.
 4. **`mark_item_done_locally` semantics changed slightly from your TODO 3 (on purpose):** the override **survives re-syncs** until Canvas shows the item submitted or the due date passes (otherwise HW3 pops back every 30 min). Undo = `DELETE /items/{id}/user-done`. Still write "student says HW3 done" to supermemory as you planned.
 5. **Reads never block on Canvas.** Stale cache → old data instantly + background refresh (`sync_in_progress: true` in `/brief`). Only the first call after a fresh service start waits ~20 s. So `get_daily_brief` / `get_todo_list` are always safe mid-conversation; keep `sync_canvas` for explicit "refresh now".
@@ -211,7 +211,7 @@ TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to 
 7. **Port mismatch to settle with Amrita:** your diagram says materials/quiz on `:9003`, `shared.env` says `RETRIEVAL_QUIZ_PORT=9002`.
 8. **Error handling in the brain:** `503 canvas_login_expired` → tell the user "Canvas login expired, Abishek needs to re-sign in" (don't retry in a loop). `404 item_not_found` → item ids come from `/brief` or `/items/next` (format `assignment-7796330`, `quiz-2062789`, `discussion_topic-…`).
 9. **Materials done (TODO 4):** list + text, see contract. **New tool `get_material_text(material_id, offset, max_chars)`** (asked for by exam prep / Amrita: the list alone has no text) and two optional args on `get_course_materials`: `topic_hint`, `this_week`. Shout if you want different names.
-10. **MCP done (TODO 6), at `/mcp`.** Your config snippet works as is (`url: ${PUBLIC_CANVAS_BASE}/mcp`, header `X-Jarvis-Key`). Three things differ from your sketch, on purpose: (a) uses the `mcp` **1.x** SDK (`mcp>=1.20,<2`) — 2.x renamed `FastMCP`; (b) auth is an ASGI guard on `/mcp` (a mounted sub-app skips FastAPI's `Depends`, so your sketch would have left `/mcp` open); (c) host check off (requests come via the Cloudflare host), key check does the protecting. `json_response` + stateless mode.
+10. **MCP done (TODO 6), at `/mcp`.** Your config snippet works as is (`url: ${PUBLIC_CANVAS_BASE}/mcp`, header `X-Canvas-Key`). Three things differ from your sketch, on purpose: (a) uses the `mcp` **1.x** SDK (`mcp>=1.20,<2`) — 2.x renamed `FastMCP`; (b) auth is an ASGI guard on `/mcp` (a mounted sub-app skips FastAPI's `Depends`, so your sketch would have left `/mcp` open); (c) host check off (requests come via the Cloudflare host), key check does the protecting. `json_response` + stateless mode.
 11. **Exam prep flow (your side):** `get_course_materials(course_id, this_week=true)` → syllabus + current module; `get_material_text` on the syllabus/syllabus PDF for exam dates & coverage, then on the module files. Don't invent coverage — every claim cites `source_url`.
 
 ## TODO from Saswata (orchestrator) — unblocks voice demo
@@ -302,7 +302,7 @@ Already your top priority. Minimal first cut unblocks Amrita even without PDF ex
 - Return `Material` with `id`, `course_id`, `title`, `type`, `url`.
 - Text extraction (your step 1's `pypdf` pass) can land in a second commit — Amrita can validate her embedding pipeline off URLs first.
 
-### [x] TODO 5 — expose your service over Cloudflare tunnel — DONE (URL in `shared.env` → `PUBLIC_CANVAS_BASE`; needs `X-Jarvis-Key` header)
+### [x] TODO 5 — expose your service over Cloudflare tunnel — DONE (URL in `shared.env` → `PUBLIC_CANVAS_BASE`; needs `X-Canvas-Key` header)
 
 Saswata already did this for `apps/voice/` — follow the exact same pattern so your `:9001` service is reachable from anywhere (orchestrator / phone / judge laptop during demo), not just localhost.
 
@@ -434,7 +434,7 @@ mcp = build_mcp(app.state.service)        # wire inside lifespan startup
 app.mount("/mcp", mcp.streamable_http_app())
 ```
 
-Register auth on the MCP route too — same `X-Jarvis-Key` header dependency as the REST routes. Don't ship an open MCP on a public tunnel.
+Register auth on the MCP route too — same `X-Canvas-Key` header dependency as the REST routes. Don't ship an open MCP on a public tunnel.
 
 **Hermes side (Saswata handles this, not you — reference only):**
 
@@ -444,7 +444,7 @@ mcp_servers:
   canvas:
     url: ${PUBLIC_CANVAS_BASE}/mcp
     headers:
-      X-Jarvis-Key: ${CANVAS_API_KEY}
+      X-Canvas-Key: ${CANVAS_API_KEY}
     timeout: 30
 ```
 
@@ -452,10 +452,10 @@ After this, Hermes's tool registry auto-discovers tools as `mcp_canvas_get_daily
 
 **Testing checklist (so you know it works before telling Saswata):**
 
-1. `curl -X POST $BASE/mcp -H "X-Jarvis-Key: $KEY" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}'` — should return a server-info response.
+1. `curl -X POST $BASE/mcp -H "X-Canvas-Key: $KEY" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}'` — should return a server-info response.
 2. `curl -X POST $BASE/mcp ... -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'` — should return the 10 tool names above.
 3. `curl -X POST $BASE/mcp ... -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_daily_brief","arguments":{"days":7}}}'` — should return the real brief.
-4. Hitting `/mcp` without the `X-Jarvis-Key` header → 401, same as the REST side.
+4. Hitting `/mcp` without the `X-Canvas-Key` header → 401, same as the REST side.
 5. Existing REST tests still pass (`pytest`) — MCP is additive, REST stays untouched.
 
 **Scope guardrails — what NOT to do:**
@@ -517,7 +517,7 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 
 ### Done
 - [x] Real Canvas via TinyFish (JSON in the logged-in browser), to-do list without submitted work, Gemini steps/topics/notes.
-- [x] Saswata's TODOs 1, 2, 3, 5: `/brief`, `/items/{id}`, user-done + undo, public tunnel + `X-Jarvis-Key`.
+- [x] Saswata's TODOs 1, 2, 3, 5: `/brief`, `/items/{id}`, user-done + undo, public tunnel + `X-Canvas-Key`.
 - [x] Background refresh (reads never block). Optional later: live sync progress for the UI.
 - [x] Course materials (TODO 4) + MCP server at `/mcp` (Saswata's TODO 6).
 

@@ -48,7 +48,7 @@ def test_text_unavailable_and_unknown(client):
 
 
 def test_materials_need_key(make_client):
-    c = make_client(browser_agent_api_key="k")
+    c = make_client(canvas_api_key="k")
     assert c.get("/materials").status_code == 401
     assert c.get("/materials/file-310010/text").status_code == 401
-    assert c.get("/materials/file-310010/text", headers={"X-Jarvis-Key": "k"}).status_code == 200
+    assert c.get("/materials/file-310010/text", headers={"X-Canvas-Key": "k"}).status_code == 200

@@ -1,7 +1,7 @@
 
 <div align="center">
 
-# 🎙️ STUDENT JARVIS  
+# 🎙️ NOVA 
 
 ## Your Student Life. One Intelligent Assistant.
 
@@ -22,11 +22,11 @@ College life happens across too many platforms: assignments in Canvas, updates i
 
 Students shouldn't have to search through five different apps just to figure out what needs their attention.
 
-**Student Jarvis brings everything together into one intelligent, voice-enabled assistant.**
+**Nova brings everything together into one intelligent, voice-enabled assistant.**
 
-Instead of simply answering questions, Jarvis is designed to understand what a student needs, gather relevant information, recommend actions, and complete approved tasks.
+Instead of simply answering questions, Nova is designed to understand what a student needs, gather relevant information, recommend actions, and complete approved tasks.
 
-> **"Jarvis, what do I need to do today? Check Canvas and my emails, tell me what's urgent, and help me make time to study."**
+> **"Nova, what do I need to do today? Check Canvas and my emails, tell me what's urgent, and help me make time to study."**
 
 Our vision is simple:
 
@@ -38,7 +38,7 @@ Our vision is simple:
 
 ### 🎙️ 1. Voice-First AI Assistant
 
-Talk naturally to Jarvis and receive spoken responses.
+Talk naturally to Nova and receive spoken responses.
 
 - Real-time voice conversations
 - Natural language understanding
@@ -50,13 +50,13 @@ Talk naturally to Jarvis and receive spoken responses.
 
 **Example:**
 
-> **Student:** "Hey Jarvis, what's on my schedule today?"
+> **Student:** "Hey Nova, what's on my schedule today?"
 >
-> **Jarvis:** "Good morning! You have two assignments coming up, one important email, and a meeting this afternoon. Would you like me to help you prioritize?"
+> **Nova:** "Good morning! You have two assignments coming up, one important email, and a meeting this afternoon. Would you like me to help you prioritize?"
 
 ### 🎓 2. Canvas Integration & Academic Assistant
 
-Jarvis connects to Canvas LMS, with appropriate authorization, to help students stay organized academically.
+Nova connects to Canvas LMS, with appropriate authorization, to help students stay organized academically.
 
 **Features:**
 
@@ -72,13 +72,13 @@ Jarvis connects to Canvas LMS, with appropriate authorization, to help students 
 
 **Example:**
 
-> "Jarvis, check Canvas and tell me what's due this week. Help me study for my Monday exam."
+> "Nova, check Canvas and tell me what's due this week. Help me study for my Monday exam."
 
-Jarvis can retrieve the relevant academic information and help the student create a realistic study plan.
+Nova can retrieve the relevant academic information and help the student create a realistic study plan.
 
 ### ✉️ 3. Gmail Integration & Smart Email Management
 
-Jarvis helps students manage their inbox without manually opening every message.
+Nova helps students manage their inbox without manually opening every message.
 
 **Features:**
 
@@ -93,15 +93,15 @@ Jarvis helps students manage their inbox without manually opening every message.
 
 **Example:**
 
-> "Jarvis, summarize my unread emails and tell me which ones I need to respond to."
+> "Nova, summarize my unread emails and tell me which ones I need to respond to."
 
-Jarvis identifies important information and provides a short, understandable summary.
+Nova identifies important information and provides a short, understandable summary.
 
 Email drafts are reviewed and approved by the student before sending.
 
 ### 📅 4. Google Calendar & Smart Scheduling
 
-Jarvis helps students manage their schedules across academic, career, and personal commitments.
+Nova helps students manage their schedules across academic, career, and personal commitments.
 
 **Features:**
 
@@ -116,13 +116,13 @@ Jarvis helps students manage their schedules across academic, career, and person
 
 **Example:**
 
-> "Jarvis, find an hour tomorrow to study for my exam and put it on my calendar."
+> "Nova, find an hour tomorrow to study for my exam and put it on my calendar."
 
-Jarvis checks existing commitments, recommends an appropriate time, and creates the event after student approval.
+Nova checks existing commitments, recommends an appropriate time, and creates the event after student approval.
 
 ### 📰 5. Personalized Current Events & News Notifications
 
-Jarvis provides relevant news based on each student's interests.
+Nova provides relevant news based on each student's interests.
 
 **Features:**
 
@@ -139,15 +139,15 @@ Jarvis provides relevant news based on each student's interests.
 
 **Example:**
 
-> "Jarvis, give me a two-minute summary of today's AI news and updates about my favorite sports team."
+> "Nova, give me a two-minute summary of today's AI news and updates about my favorite sports team."
 
-Jarvis retrieves relevant news, identifies useful sources, and provides a concise summary.
+Nova retrieves relevant news, identifies useful sources, and provides a concise summary.
 
 Students control their notification preferences.
 
 ### 💼 6. AI Career & Internship Assistant
 
-Jarvis supports students throughout their internship and career preparation.
+Nova supports students throughout their internship and career preparation.
 
 **Features:**
 
@@ -163,13 +163,13 @@ Jarvis supports students throughout their internship and career preparation.
 
 **Example:**
 
-> "Jarvis, find AI and product management internships that match my background and help me prepare for upcoming interviews."
+> "Nova, find AI and product management internships that match my background and help me prepare for upcoming interviews."
 
-Jarvis can assist with research and preparation while keeping students in control of applications.
+Nova can assist with research and preparation while keeping students in control of applications.
 
-### 💚 7. Jarvis Care — Healthcare & Wellness Assistant
+### 💚 7. Nova Care — Healthcare & Wellness Assistant
 
-Jarvis Care makes everyday health information and appointment preparation more accessible to students.
+Nova Care makes everyday health information and appointment preparation more accessible to students.
 
 **Features:**
 
@@ -186,16 +186,16 @@ Jarvis Care makes everyday health information and appointment preparation more a
 
 **Example:**
 
-> "Jarvis, explain my doctor's instructions in simple words, read them aloud, and remind me about my follow-up appointment."
+> "Nova, explain my doctor's instructions in simple words, read them aloud, and remind me about my follow-up appointment."
 
-Jarvis provides understandable information and helps organize next steps.
+Nova provides understandable information and helps organize next steps.
 
-**Jarvis Care does not diagnose conditions, prescribe medication, or replace qualified healthcare professionals.**
+**Nova Care does not diagnose conditions, prescribe medication, or replace qualified healthcare professionals.**
 ---
 
 ## ♿ Accessibility for Everyone
 
-Accessibility is a core design principle of Student Jarvis.
+Accessibility is a core design principle of Nova.
 
 We believe students should be able to use an intelligent assistant regardless of their visual, auditory, motor, or other accessibility needs.
 
@@ -244,21 +244,21 @@ We believe students should be able to use an intelligent assistant regardless of
 
 ---
 
-## 🧠 What Makes Student Jarvis Different?
+## 🧠 What Makes Nova Different?
 
 Most student productivity applications focus on one task.
 
-Student Jarvis is designed to connect multiple student needs through a shared AI system.
+Nova is designed to connect multiple student needs through a shared AI system.
 
-Rather than having separate assistants for academics, email, scheduling, and wellness, Jarvis coordinates information across different services.
+Rather than having separate assistants for academics, email, scheduling, and wellness, Nova coordinates information across different services.
 
 ### Example: One Request, Multiple Agents
 
 **Student:**
 
-> "Jarvis, I have an exam Monday, an internship interview Tuesday, and a doctor's appointment I need to schedule. Help me organize everything."
+> "Nova, I have an exam Monday, an internship interview Tuesday, and a doctor's appointment I need to schedule. Help me organize everything."
 
-**Jarvis coordinates:**
+**Nova coordinates:**
 
 1. **Academic Agent:** Retrieves exam information and generates a study plan.
 2. **Career Agent:** Prepares interview practice tasks.
@@ -338,7 +338,7 @@ Rather than having separate assistants for academics, email, scheduling, and wel
 ## 📂 Repository Structure
 
 ```text
-student-jarvis/
+student-nova/
 │
 ├── AGENTS.md
 ├── README.md
@@ -373,8 +373,8 @@ The repository is actively evolving as individual components are developed and i
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:SD170/student-jarvis.git
-cd student-jarvis
+git clone git@github.com:SD170/student-nova.git
+cd student-nova
 ```
 
 The repository is private, so GitHub access is required.
@@ -406,7 +406,7 @@ Mock data may be used during development to demonstrate features without accessi
 
 ### 5. Connect Student Services
 
-Students explicitly authorize the services Jarvis needs to access.
+Students explicitly authorize the services Nova needs to access.
 
 Supported services and authentication workflows will be expanded as development progresses.
 
@@ -414,7 +414,7 @@ Supported services and authentication workflows will be expanded as development 
 
 ## 🔒 Privacy, Security & Responsible AI
 
-Student Jarvis is designed to put users in control of their information and actions.
+Nova is designed to put users in control of their information and actions.
 
 Key principles include:
 
@@ -430,13 +430,13 @@ Key principles include:
 - Clear communication of AI limitations
 - Responsible handling of academic and health information
 
-Jarvis should never claim that an action succeeded unless the connected service confirms completion.
+Nova should never claim that an action succeeded unless the connected service confirms completion.
 
 ---
 
 ## 🛠️ Development Status
 
-Student Jarvis is under active development for SunHacks 2026.
+Nova is under active development for SunHacks 2026.
 
 The following reflects the repository information available as of November 14, 2026.
 
@@ -451,7 +451,7 @@ The following reflects the repository information available as of November 14, 2
 | Gmail Integration | Planned |
 | Google Calendar Integration | Planned |
 | Career Assistant | Planned / implementation to verify |
-| Jarvis Care | Planned / implementation to verify |
+| Nova Care | Planned / implementation to verify |
 | Cross-Agent Orchestration | Scaffolded / end-to-end testing required |
 | Accessibility Features | Design requirements established |
 
@@ -467,9 +467,9 @@ The team will update implementation status as integrations are completed and tes
 
 A student starts their morning with one question:
 
-> **"Hey Jarvis, what do I need to know today?"**
+> **"Hey Nova, what do I need to know today?"**
 
-Jarvis provides a personalized briefing:
+Nova provides a personalized briefing:
 
 **Academics**
 
@@ -495,7 +495,7 @@ The student responds:
 
 > "Yes, schedule the study session and quiz me on the exam material."
 
-Jarvis coordinates the requested actions, obtains confirmation where needed, and responds with a clear spoken summary.
+Nova coordinates the requested actions, obtains confirmation where needed, and responds with a clear spoken summary.
 
 The demo should distinguish live integrations from simulated data and only claim actions that actually execute successfully.
 
@@ -507,7 +507,7 @@ We believe the next generation of student technology should be more than a colle
 
 It should be accessible, intelligent, personalized, and genuinely useful.
 
-Student Jarvis aims to reduce the time students spend managing tools so they can focus on learning, growth, and their everyday lives.
+Nova aims to reduce the time students spend managing tools so they can focus on learning, growth, and their everyday lives.
 
 **Less switching tabs. More getting things done.**
 

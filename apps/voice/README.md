@@ -1,6 +1,6 @@
 # apps/voice
 
-Voice loop for Student Jarvis. Mic audio → STT → feeds orchestrator `/chat` → spoken reply.
+Voice loop for Nova. Mic audio → STT → feeds orchestrator `/chat` → spoken reply.
 
 ## Owner
 

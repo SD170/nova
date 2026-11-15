@@ -4,13 +4,14 @@ import { installTestKeys } from './avatar/testKeys'
 import { bindVapi, createVoiceHooks } from './avatar/voiceBridge'
 import { toggleDemo } from './tasks/demo'
 import './tasks/tasks' // registers window.jarvisTasks
-import { DevPanel, Hint } from './ui/Controls'
+import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { TaskPanel } from './ui/TaskPanel'
 import { BootTitle } from './ui/BootTitle'
 import { Hud } from './ui/Hud'
 import { presence } from './avatar/presence'
 import { installTaskChime, toggleMute, warmUpAudio } from './audio/chime'
 import { PushToTalk, type SpeechHandler } from './voice/pushToTalk'
+import { initVapi, getVapi } from './voice/vapiClient'
 
 const params = new URLSearchParams(location.search)
 // ?debug tints the face rig regions (red = jaw, green = mouth opening).
@@ -40,11 +41,13 @@ export default function App() {
   const ptt = useMemo(() => new PushToTalk(), [])
   const handlers = useRef(new Set<SpeechHandler>())
   const devAudio = useRef<HTMLAudioElement | null>(null)
+  const vapiReady = useRef(false)
   const [state, setState] = useState<AvatarState>('idle')
   const [debugOpen, setDebugOpen] = useState(false) // press D
   const [hintVisible, setHintVisible] = useState(true)
   const [mode, setMode] = useState(presence.mode) // boot / awake / dissolving / dissolved / waking
   useEffect(() => presence.subscribe(setMode), [])
+  const [listening, setListening] = useState(false)
 
   // Dev fallback reply (no backend yet): think briefly, then speak the sample clip.
   const playSample = useCallback(() => {
@@ -56,7 +59,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    // ── push-to-talk → states + speech event
+    // Push-to-talk callbacks remain wired for environments WITHOUT Vapi
+    // (dev builds, teammates who haven't pulled the key). When Vapi is live
+    // the SPACE key toggles vapi.setMuted and PTT is not driving the mic.
     ptt.onStart = () => {
       devAudio.current?.pause() // barge-in
       avatarRef.current?.setState('listening')
@@ -64,14 +69,12 @@ export default function App() {
     ptt.onRelease = () => avatarRef.current?.setState('thinking')
     ptt.onEnd = (blob, ms) => {
       window.dispatchEvent(new CustomEvent('jarvis:user-speech-end', { detail: { blob, durationMs: ms } }))
-      // TODO(backend): a handler registered via window.jarvisVoice.onUserSpeechEnd
-      // should send `blob` to the orchestrator and connectAudio() the spoken reply.
       if (handlers.current.size) handlers.current.forEach((h) => h(blob, ms))
       else if (SHOW_DEV)
         setTimeout(async () => {
           if (avatarRef.current?.getState() !== 'thinking') return
-          await avatarRef.current.endThinking() // symbols fully gone first…
-          playSample() // …then the face starts talking
+          await avatarRef.current.endThinking()
+          playSample()
         }, 2500)
       else setTimeout(() => avatarRef.current?.getState() === 'thinking' && avatarRef.current?.setState('idle'), 8000)
     }
@@ -95,7 +98,18 @@ export default function App() {
       setPointer: (x, y) => avatarRef.current?.setPointer(x, y),
     }
     window.jarvisAvatar = api
-    // VAPI HOOK POINT: where the Vapi client is created, call window.jarvisVoice.bindVapi(vapi)
+    // VAPI: try to spin up the client. If creds are set, this call goes to Nova
+    // and bindVapi() wires call-events to the avatar automatically. If not
+    // configured, we fall back to the local push-to-talk + sample-voice path.
+    const handle = initVapi(api)
+    vapiReady.current = !!handle
+    if (handle) {
+      // Fire-and-forget: start the call. User doesn't see anything until they
+      // press SPACE (which unmutes).
+      handle.setMuted(true)
+      handle.start().catch((e) => console.error('[vapi] start error', e))
+    }
+
     window.jarvisVoice = {
       bindVapi: (vapi) => bindVapi(vapi, api),
       hooks: createVoiceHooks(api),
@@ -118,12 +132,20 @@ export default function App() {
       if (presence.mode === 'boot') return presence.skipBoot()
       if (presence.mode === 'dissolving' || presence.mode === 'dissolved') return presence.wake()
       if (presence.busy) return // waking up — ignore until awake
-      ptt.start()
+      if (vapiReady.current) {
+        getVapi()?.setMuted(false)
+        // avatar state is driven by Vapi's own speech-update events via voiceBridge
+      } else {
+        ptt.start()
+      }
+      setListening(true)
     }
     const up = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
       e.preventDefault()
-      ptt.stop()
+      if (vapiReady.current) getVapi()?.setMuted(true)
+      else ptt.stop()
+      setListening(false)
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
@@ -192,6 +214,7 @@ export default function App() {
         <TaskPanel />
       </div>
       <BootTitle />
+      <ListeningBadge visible={listening} />
       {debugOpen && (
         <DevPanel
           state={state}

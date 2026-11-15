@@ -4,10 +4,10 @@ Dates are relative to "now" so /items/next always has something to show.
 Everything is labeled data_source=demo — never presented as live.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from ..models import Course, DataSource, Material, RawItem, SourceKind
+from ..models import Course, DataSource, Material, MaterialType, RawItem, SourceKind, TextStatus
 from .base import BrowserBackend
 
 PHX = ZoneInfo("America/Phoenix")
@@ -122,47 +122,66 @@ def _raw_items() -> dict[str, list[RawItem]]:
     }
 
 
-MATERIALS = {
-    "cse310": [
-        Material(
-            id="cse310-l9",
-            course_id="cse310",
-            title="Lecture 9 - AVL Trees",
-            type="page",
-            url=f"{BASE}/courses/cse310/pages/lecture-9",
-            extracted_text=(
-                "An AVL tree is a self-balancing binary search tree. For every node, the heights "
-                "of the left and right subtrees differ by at most one. After an insert, the tree "
-                "is rebalanced with single (LL, RR) or double (LR, RL) rotations. Search, insert "
-                "and delete all run in O(log n)."
-            ),
-        ),
-        Material(
-            id="cse310-l10",
-            course_id="cse310",
-            title="Lecture 10 - Heaps",
-            type="page",
-            url=f"{BASE}/courses/cse310/pages/lecture-10",
-            extracted_text=(
-                "A binary min-heap is a complete binary tree where each parent is <= its children. "
-                "Insert bubbles up, extract-min bubbles down; both are O(log n). Build-heap is O(n)."
-            ),
-        ),
-    ],
-    "mat343": [
-        Material(
-            id="mat343-l12",
-            course_id="mat343",
-            title="Lecture 12 - Eigenvalues",
-            type="page",
-            url=f"{BASE}/courses/mat343/pages/lecture-12",
-            extracted_text=(
-                "lambda is an eigenvalue of A if Av = lambda v for some nonzero v. Eigenvalues are "
-                "the roots of det(A - lambda I) = 0, the characteristic polynomial."
-            ),
-        ),
-    ],
+def _week(offset_days: int) -> tuple[date, date]:
+    start = datetime.now(PHX).date() + timedelta(days=offset_days)
+    return start, start + timedelta(days=6)
+
+
+MOCK_TEXT = {
+    "syllabus-cse310": (
+        "CSE 310 Syllabus. Midterm exam in week 9 covers trees (BST, AVL) and heaps. "
+        "Final exam covers graphs and hashing.", None),
+    "page-cse310-lecture-9": (
+        "An AVL tree is a self-balancing binary search tree. For every node, the heights "
+        "of the left and right subtrees differ by at most one. After an insert, the tree "
+        "is rebalanced with single (LL, RR) or double (LR, RL) rotations. Search, insert "
+        "and delete all run in O(log n).", None),
+    "file-310010": (
+        "[page 1]\nA binary min-heap is a complete binary tree where each parent is <= its "
+        "children.\n\n[page 2]\nInsert bubbles up, extract-min bubbles down; both are "
+        "O(log n). Build-heap is O(n).", 2),
+    "file-343012": (
+        "[page 1]\nlambda is an eigenvalue of A if Av = lambda v for some nonzero v. "
+        "Eigenvalues are the roots of det(A - lambda I) = 0, the characteristic polynomial.", 1),
 }
+
+
+def _materials() -> dict[str, list[Material]]:
+    w_now, w_next = _week(-2), _week(5)
+    cse = Course(id="cse310", code="CSE 310", name="", term="")
+    mat = Course(id="mat343", code="MAT 343", name="", term="")
+
+    def m(course: Course, mid: str, title: str, mtype: MaterialType, module: str,
+          week: tuple[date, date] | None, **kw) -> Material:
+        return Material(id=mid, course_id=course.id, course_code=course.code, title=title,
+                        type=mtype, url=f"{BASE}/courses/{course.id}/{mid}", module=module,
+                        week_start=week[0] if week else None, week_end=week[1] if week else None,
+                        **kw)
+
+    return {
+        "cse310": [
+            Material(id="syllabus-cse310", course_id="cse310", course_code="CSE 310",
+                     title="CSE 310 Syllabus", type=MaterialType.syllabus,
+                     url=f"{BASE}/courses/cse310/assignments/syllabus"),
+            m(cse, "page-cse310-lecture-9", "Lecture 9 - AVL Trees", MaterialType.page,
+              "Module 4: Balanced Trees", w_now, module_position=4, position=1),
+            m(cse, "file-310010", "Lecture 10 - Heaps.pdf", MaterialType.pdf,
+              "Module 5: Heaps", w_next, module_position=5, position=1,
+              content_type="application/pdf", size_bytes=820_000),
+            m(cse, "file-310099", "Textbook (full).pdf", MaterialType.pdf,
+              "Module 0: Readings", None, module_position=0, position=1,
+              content_type="application/pdf", size_bytes=48_000_000,
+              text_status=TextStatus.too_large),
+            m(cse, "link-cse310-77", "Visualgo: AVL demo", MaterialType.link,
+              "Module 4: Balanced Trees", w_now, module_position=4, position=2,
+              text_status=TextStatus.link_only),
+        ],
+        "mat343": [
+            m(mat, "file-343012", "Lecture 12 - Eigenvalues.pdf", MaterialType.pdf,
+              "Week 12: Eigenvalues", w_now, module_position=12, position=1,
+              content_type="application/pdf", size_bytes=410_000),
+        ],
+    }
 
 
 # Mock "Weekly Check-in 7" is submitted=True, so it must NOT appear in the to-do list.
@@ -179,4 +198,9 @@ class MockBackend(BrowserBackend):
         return _raw_items().get(course.id, [])
 
     async def fetch_materials(self, course: Course) -> list[Material]:
-        return list(MATERIALS.get(course.id, []))
+        return _materials().get(course.id, [])
+
+    async def fetch_material_text(self, material: Material) -> tuple[str, int | None]:
+        if material.id not in MOCK_TEXT:
+            raise ValueError(f"No mock text for {material.id}")
+        return MOCK_TEXT[material.id]

@@ -649,8 +649,47 @@ def _post_json_sync(url: str, body: dict[str, Any],
 
 async def _mint_and_inject(turn_id: str, call_id: str,
                             mint_body: dict[str, Any]) -> None:
-    """Call cred-agent /mint_credential (long-running) and speak the result."""
+    """Call cred-agent /mint_credential and narrate the ceremony step by step.
+
+    The mint is a 6-15s pipeline with four honest-sounding phases:
+      1. pull Canvas transcript                (~2s)
+      2. capture MyASU witness via browser-agent (~3s)
+      3. sign + Memo program tx on Solana devnet (~5s)
+      4. upload to R2 + Metaplex NFT mint      (~4s)
+
+    We schedule 3 narration lines to land roughly inside those phases while
+    the real mint runs in a background thread. If the real result lands
+    EARLY (cred-agent was fast / dedupe hit), we cancel the remaining
+    narration so the final confirmation doesn't collide with stale filler.
+    """
     t0 = time.time()
+
+    done = asyncio.Event()
+
+    async def _narrate() -> None:
+        # Phase lines. Spaces inside "N F T" so TTS says the letters,
+        # not "nift". Keep each line short so Vapi doesn't eat the next
+        # phase line while the previous one is still speaking.
+        phases = [
+            (2.0,  "Pulling your transcript from Canvas now."),
+            (6.0,  "Signing it with your key and anchoring on Solana devnet."),
+            (11.0, "Uploading the proof and minting the N F T."),
+        ]
+        start = time.time()
+        for at, line in phases:
+            remaining = at - (time.time() - start)
+            if remaining > 0:
+                try:
+                    await asyncio.wait_for(done.wait(), timeout=remaining)
+                    return  # real mint finished early — stop narrating
+                except asyncio.TimeoutError:
+                    pass
+            if done.is_set():
+                return
+            _vapi_inject_say(call_id, line)
+
+    narration = asyncio.create_task(_narrate())
+
     try:
         # Run blocking urllib in a thread so we don't block the event loop.
         d, status = await asyncio.to_thread(_post_json_sync,
@@ -673,6 +712,16 @@ async def _mint_and_inject(turn_id: str, call_id: str,
     except Exception as exc:  # noqa: BLE001
         log.error("[t-mint %s] crashed: %s", turn_id, exc)
         msg = "The mint service isn't reachable right now."
+    finally:
+        # Signal the narrator that the real result is ready. It will bail
+        # out of its next asyncio.wait_for and stop speaking.
+        done.set()
+        # Give the narrator one tick to notice the flag, then cancel the
+        # task in case it was mid-inject.
+        try:
+            await asyncio.wait_for(narration, timeout=0.3)
+        except asyncio.TimeoutError:
+            narration.cancel()
     log.info("[t-mint %s] done took=%.3fs msg=%r", turn_id, time.time()-t0, msg[:80])
     _vapi_inject_say(call_id, msg)
 

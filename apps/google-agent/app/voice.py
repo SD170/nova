@@ -35,7 +35,8 @@ def short_title(title: str | None) -> str:
     m = _KIND.match(t)
     if m:
         kind = "discussion" if m.group(1).lower().startswith("discussion") else m.group(1).lower()
-        return f"{re.split(r'\s+[-–—]\s+', m.group(2))[0].strip()} {kind}"
+        head = re.split(r"\s+[-–—]\s+", m.group(2))[0].strip()
+        return f"{head} {kind}"
     m = _NUMBERED.search(t)
     if m:
         word = m.group(1) if m.group(1).isupper() else m.group(1).title()

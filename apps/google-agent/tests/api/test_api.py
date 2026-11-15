@@ -168,3 +168,16 @@ def test_key_is_required_when_set(make_client):
     assert c.get("/gmail/inbox", headers={"X-Canvas-Key": "bad"}).status_code == 401
     assert c.get("/gmail/inbox", headers={"X-Canvas-Key": "s3cret"}).status_code == 200
     assert c.get("/files/000000000000").status_code == 401
+
+
+# ---------- news ----------
+
+def test_news_rest_routes(client, fake_news):
+    n = client.get("/news/headlines?topics=top&count=2").json()
+    assert n["count"] == 2 and n["stories"][0]["title"].startswith("Judge temporarily")
+    e = client.get("/news/asu-events?days=7").json()
+    assert e["total"] == 2 and e["events"][1]["title"] == "Robotics club meeting"
+    from app.models import NewsUnavailable
+    fake_news["error"] = NewsUnavailable("down")
+    r = client.get("/news/headlines")
+    assert r.status_code == 502 and r.json()["error"] == "news_unavailable"

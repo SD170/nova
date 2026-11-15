@@ -68,3 +68,40 @@ def test_mcp_requires_key(make_client):
     assert rpc(c, "tools/list", headers={"X-Canvas-Key": "bad"}).status_code == 401
     r = rpc(c, "tools/list", headers={"X-Canvas-Key": "s3cret"})
     assert r.status_code == 200 and len(r.json()["result"]["tools"]) == len(TOOLS)
+
+
+# ---------- voice-sized answers ----------
+
+def test_every_read_tool_has_a_short_speak_line(client):
+    calls = [("get_daily_brief", {}), ("get_todo_list", {}), ("list_courses", {}),
+             ("get_course_items", {"course_id": "cse310"}),
+             ("get_course_materials", {"course_id": "cse310"}),
+             ("get_item_details", {"item_id": "cse310-a3"}),
+             ("mark_item_done_locally", {"item_id": "cse310-a3"}),
+             ("unmark_item_done", {"item_id": "cse310-a3"})]
+    for name, args in calls:
+        _, out = call(client, name, args)
+        assert out["speak"] and len(out["speak"].split()) <= 35, (name, out["speak"])
+
+
+def test_brief_is_compact_and_uses_short_names(client):
+    res, brief = call(client, "get_daily_brief", {"days": 7})
+    assert len(res["content"][0]["text"]) < 3000  # was ~3.6k for 7 items before; stays small
+    first = brief["items"][0]
+    assert set(first) == {"id", "course", "title", "due", "points", "type", "source_url"}
+    assert first["course"] == "CSE 310" and first["title"] == "Homework 3"
+    assert "what_to_do" not in first and "notes" not in first
+    _, courses = call(client, "list_courses")
+    assert courses["speak"] == "You're taking CSE 310 and MAT 343."
+
+
+def test_item_details_keep_steps_but_say_one_line(client):
+    _, d = call(client, "get_item_details", {"item_id": "cse310-a3"})
+    assert d["steps"] and d["speak"].startswith("Homework 3 for CSE 310")
+    assert d["full_title"] == "Homework 3: AVL Trees"
+
+
+def test_materials_list_is_capped(client):
+    _, m = call(client, "get_course_materials", {"course_id": "cse310", "limit": 2})
+    assert m["total"] == 5 and m["shown"] == 2 and len(m["materials"]) == 2
+    assert set(m["materials"][0]) <= {"id", "title", "type", "module", "text_status", "week"}

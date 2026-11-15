@@ -26,6 +26,7 @@ from .canvas_sync import CanvasClient
 from .classify import Classifier
 from .config import Settings, get_settings
 from .documents import MEDIA, DocumentStore
+from .gist import Gister
 from .mcp_server import KeyGuard, build_mcp
 from .models import (
     AutoSyncStatus,
@@ -43,9 +44,11 @@ from .models import (
     InboxResponse,
     MessageNotFound,
     NewMailResponse,
+    NewsUnavailable,
     ResearchUnavailable,
     SyncPlan,
 )
+from .news import NewsClient
 from .research import CompanyResearcher
 from .service import WorkspaceService
 
@@ -99,7 +102,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             CanvasClient(settings.canvas_service_url, settings.canvas_api_key),
             CompanyResearcher(settings.tinyfish_api_key, settings.gemini_api_key,
                               settings.gemini_models, settings.gemini_timeout_seconds),
-            DocumentStore(settings.files_dir, settings.public_workspace_base))
+            DocumentStore(settings.files_dir, settings.public_workspace_base),
+            Gister(settings.gist_cache_path,
+                   settings.gemini_api_key if settings.llm_active else "",
+                   settings.gemini_models, settings.gemini_timeout_seconds),
+            NewsClient(settings.news_service_url, settings.news_api_key))
         app.state.service = svc
         if svc.state.data.get("auto_sync"):
             svc.start_auto_loop()  # resume after a restart
@@ -137,6 +144,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(DocumentNotFound, err(404, "document_not_found"))
     app.add_exception_handler(CanvasUnavailable, err(502, "canvas_unavailable"))
     app.add_exception_handler(ResearchUnavailable, err(503, "research_unavailable"))
+    app.add_exception_handler(NewsUnavailable, err(502, "news_unavailable"))
     app.add_exception_handler(ValueError, err(422, "bad_request"))
 
     # ---------- routes ----------
@@ -209,6 +217,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
               tags=["calendar"])
     async def auto_sync_set(request: Request, body: AutoSyncRequest):
         return await svc(request).set_auto_sync(body.enabled)
+
+    # News + ASU events (proxy to Amrita's service, shortened)
+    @app.get("/news/headlines", dependencies=protected, tags=["news"])
+    async def headlines(request: Request, topics: str = "top", count: int = Query(3, ge=1, le=6),
+                        live: bool = False):
+        """Compact stories (title, source, url) for the UI and the brain."""
+        return await svc(request).headlines(topics, count, live)
+
+    @app.get("/news/asu-events", dependencies=protected, tags=["news"])
+    async def asu_events(request: Request, days: int = Query(7, ge=1, le=30),
+                         query: str | None = None, limit: int = Query(5, ge=1, le=10)):
+        return await svc(request).asu_events(days, query, limit)
 
     # Research + documents
     @app.post("/research/company", response_model=CompanyResearch, dependencies=protected,

@@ -7,7 +7,8 @@ H = {"Accept": "application/json, text/event-stream", "Content-Type": "applicati
 TOOLS = {"gmail_inbox_summary", "gmail_new_since", "gmail_search", "gmail_get_message",
          "gmail_create_draft", "calendar_list_events", "calendar_free_busy",
          "calendar_create_event", "calendar_sync_canvas", "calendar_auto_sync",
-         "research_company", "save_document", "get_workspace_health"}
+         "research_company", "save_document", "get_workspace_health",
+         "news_headlines", "asu_events"}
 
 
 def rpc(c, method, params=None, headers=None, rid=1):
@@ -36,12 +37,18 @@ def test_inbox_matches_rest(client):
     assert [e["id"] for e in inbox["emails"]] == [e["id"] for e in rest["emails"]]
 
 
-def test_read_and_draft(client):
+def test_read_gives_a_gist_not_the_body(client):
     _, msg = call(client, "gmail_get_message", {"message_id": "m-prof"})
-    assert "AVL" in msg["body_text"]
+    assert msg["speak"].startswith("From Prof. Ramirez:") and "body_text" not in msg
+    assert len(msg["speak"].split()) <= 40
+    _, full = call(client, "gmail_get_message", {"message_id": "m-prof", "full": True})
+    assert "AVL" in full["body_text"] and full["truncated"] is False
+
+
+def test_draft_is_saved_never_sent(client):
     _, d = call(client, "gmail_create_draft", {"body": "Yes, I'll be there.",
                                               "reply_to_message_id": "m-prof"})
-    assert d["draft_id"] and "Nothing was sent" in d["note"]
+    assert d["draft_id"] and d["speak"] == "Draft saved in Gmail. Nothing was sent."
 
 
 def test_sync_preview_then_apply(client, fake_canvas):
@@ -82,3 +89,93 @@ def test_mcp_requires_key(make_client):
     assert rpc(c, "tools/list", headers={"X-Jarvis-Key": "s3cret"}).status_code == 401  # old name
     ok = rpc(c, "tools/list", headers={"X-Canvas-Key": "s3cret"})
     assert ok.status_code == 200 and len(ok.json()["result"]["tools"]) == len(TOOLS)
+
+
+# ---------- voice-sized answers ----------
+
+def test_every_tool_has_a_short_speak_line(client, fake_canvas):
+    calls = [("gmail_inbox_summary", {}), ("gmail_new_since", {}),
+             ("gmail_search", {"query": "from:northwind"}),
+             ("gmail_get_message", {"message_id": "m-recruiter"}),
+             ("gmail_create_draft", {"body": "Thursday works.",
+                                     "reply_to_message_id": "m-recruiter"}),
+             ("calendar_list_events", {"days_ahead": 7}), ("calendar_free_busy", {}),
+             ("calendar_sync_canvas", {}), ("calendar_sync_canvas", {"apply": True}),
+             ("calendar_auto_sync", {}),
+             ("save_document", {"title": "Cover letter", "content_markdown": "Hi"})]
+    for name, args in calls:
+        _, out = call(client, name, args)
+        assert out["speak"] and len(out["speak"].split()) <= 40, (name, out["speak"])
+
+
+def test_inbox_answer_is_one_short_line_and_small(client):
+    res, inbox = call(client, "gmail_inbox_summary", {"hours": 72})
+    assert len(res["content"][0]["text"]) < 3500   # was ~14k (20 full emails) in real use
+    assert inbox["speak"].startswith("3 important out of 6. Top: Dana Whitfield,")
+    assert "Top:" in inbox["speak"] and "need" in inbox["speak"]
+    first = inbox["emails"][0]
+    assert set(first) == {"id", "from", "subject", "snippet", "category", "important",
+                          "needs_reply", "unread", "when"}
+    assert len(first["snippet"]) <= 100
+
+
+def test_sync_preview_speaks_a_question_and_apply_speaks_done(client, fake_canvas):
+    _, preview = call(client, "calendar_sync_canvas", {})
+    assert preview["speak"].startswith("I'd add 3 on your Nova calendar.")
+    assert preview["speak"].endswith("Want me to do it?")
+    assert preview["changes"][0]["title"].startswith("CSE 540 Homework 4")
+    _, done = call(client, "calendar_sync_canvas", {"apply": True})
+    assert done["speak"] == "Done. Added 3 on your Nova calendar."
+    _, again = call(client, "calendar_sync_canvas", {"apply": True})
+    assert again["speak"] == "Your Nova calendar is already up to date."
+
+
+def test_free_time_is_spoken_in_plain_words(client):
+    _, fb = call(client, "calendar_free_busy", {"days_ahead": 2})
+    assert fb["speak"].startswith("You're free ") and " to " in fb["speak"]
+
+
+# ---------- news + ASU events (Amrita's service, proxied) ----------
+
+def test_news_headlines_one_short_line(client, fake_news):
+    res, out = call(client, "news_headlines", {"topics": "world", "count": 3})
+    assert out["speak"] == ("Top story: Judge temporarily blocks Trump from moving ahead on "
+                            "Washington public golf course, confirmed by 2 outlets. "
+                            "2 more if you want them.")
+    assert len(out["speak"].split()) <= 35 and out["count"] == 3
+    assert out["stories"][0]["url"] == "https://npr.org/a" and out["stories"][0]["source"] == "NPR"
+    assert fake_news["calls"][0] == ("/news", {"topics": "world", "since_hours": 24,
+                                               "per_topic": 3, "live": "false"})
+    assert len(res["content"][0]["text"]) < 2000
+
+
+def test_asu_events_speak(client, fake_news):
+    _, out = call(client, "asu_events", {"days": 7, "query": "career"})
+    assert out["speak"] == "2 ASU events this week. Next: Career Fair, Tuesday 10 AM."
+    assert out["total"] == 2 and out["events"][0]["location"] == "Memorial Union, Tempe"
+    assert fake_news["calls"][0][1]["query"] == "career"
+
+
+def test_news_service_down_is_a_clear_tool_error(client, fake_news):
+    from app.models import NewsUnavailable
+    fake_news["error"] = NewsUnavailable("Could not reach the news service at http://localhost:9004")
+    res, _ = call(client, "news_headlines", {})
+    assert res["isError"] and "news service" in res["content"][0]["text"]
+
+
+def test_ongoing_events_say_happening_now_and_ended_ones_are_dropped(client, fake_news,
+                                                                       monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    import tests.conftest as c
+    now = datetime.now(timezone.utc)
+    iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")
+    monkeypatch.setitem(c.EVENTS, "items", [
+        {"id": "old", "title": "Ended yesterday", "starts_at": iso(now - timedelta(days=2)),
+         "ends_at": iso(now - timedelta(days=1)), "url": "u"},
+        {"id": "now", "title": "SunHacks 9.0", "starts_at": iso(now - timedelta(hours=5)),
+         "ends_at": iso(now + timedelta(hours=5)), "url": "u"},
+        {"id": "later", "title": "Career Fair", "starts_at": iso(now + timedelta(days=2)),
+         "ends_at": iso(now + timedelta(days=2, hours=3)), "url": "u"}])
+    _, out = call(client, "asu_events", {})
+    assert [e["id"] for e in out["events"]] == ["now", "later"]
+    assert out["speak"] == "2 ASU events this week. Now: SunHacks 9.0."

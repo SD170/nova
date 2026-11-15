@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     tinyfish_api_key: str = ""
 
+    # Amrita's news service (drafts/amrita-current-events), runs on this laptop
+    news_service_url: str = "http://localhost:9004"
+    news_api_key: str = ""   # only if her NEWS_AGENT_API_KEY is set (sent as X-Jarvis-Key)
+
     @field_validator("gemini_fallback_models", mode="before")
     @classmethod
     def _split(cls, v):
@@ -70,6 +74,10 @@ class Settings(BaseSettings):
     @property
     def classify_cache_path(self) -> Path:
         return self.data_dir / "classify_cache.json"
+
+    @property
+    def gist_cache_path(self) -> Path:
+        return self.data_dir / "gist_cache.json"
 
     @property
     def files_dir(self) -> Path:

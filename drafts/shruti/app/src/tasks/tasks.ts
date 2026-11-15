@@ -15,7 +15,7 @@
 // Full guide for teammates: drafts/shruti/TASKS_API.md
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type TaskType = 'email' | 'calendar' | 'canvas' | 'web' | 'other'
+export type TaskType = 'email' | 'calendar' | 'canvas' | 'web' | 'blockchain' | 'other'
 export type TaskStatus = 'queued' | 'running' | 'done' | 'failed'
 
 export interface TaskResult {

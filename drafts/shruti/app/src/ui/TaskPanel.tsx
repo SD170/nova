@@ -237,6 +237,16 @@ function TaskIcon({ type }: { type: TaskType }) {
           <path d="M3.5 12h17M12 3.5c2.4 2.4 3.6 5.2 3.6 8.5s-1.2 6.1-3.6 8.5M12 3.5C9.6 5.9 8.4 8.7 8.4 12s1.2 6.1 3.6 8.5" />
         </svg>
       )
+    case 'blockchain':
+      // Three stacked skewed bars — mirrors the Solana wordmark feel
+      // (same mark we use for the solana provider in the left activity chip)
+      return (
+        <svg {...p}>
+          <path d="M5 7.5l12 0-2 -2.5l-12 0z" fill="currentColor" stroke="none" />
+          <path d="M5 13l12 0-2 -2.5l-12 0z" fill="currentColor" stroke="none" />
+          <path d="M5 18.5l12 0-2 -2.5l-12 0z" fill="currentColor" stroke="none" />
+        </svg>
+      )
     default:
       return (
         <svg {...p}>

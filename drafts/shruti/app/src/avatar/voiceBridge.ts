@@ -176,18 +176,33 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
           const calls = m.toolCalls ?? m.toolCallList ?? (m.functionCall ? [m.functionCall] : [])
           for (const c of calls) {
             const name = c.function?.name ?? c.name
-            if (name !== 'ask_brain') continue
-            const argsRaw = c.function?.arguments ?? c.arguments ?? {}
-            const args = typeof argsRaw === 'string' ? safeJson(argsRaw) : argsRaw
-            const q = (args?.question ?? '').toString()
-            if (!q) continue
-            const toolCallId = c.id ?? c.toolCallId ?? ''
-            const taskId = addTask({
-              type: classify(q),
-              title: titleOf(q),
-              status: 'running',
-            })
-            if (toolCallId) toolCallToTaskId[toolCallId] = taskId
+            if (name === 'ask_brain') {
+              const argsRaw = c.function?.arguments ?? c.arguments ?? {}
+              const args = typeof argsRaw === 'string' ? safeJson(argsRaw) : argsRaw
+              const q = (args?.question ?? '').toString()
+              if (!q) continue
+              const toolCallId = c.id ?? c.toolCallId ?? ''
+              const taskId = addTask({
+                type: classify(q),
+                title: titleOf(q),
+                status: 'running',
+              })
+              if (toolCallId) toolCallToTaskId[toolCallId] = taskId
+              continue
+            }
+            // mint_credential → one task row 'Blockchain registration'. Matches
+            // the bridge-side _register_task so the poller completes it when
+            // the Solana ceremony lands.
+            if (name === 'mint_credential') {
+              const toolCallId = c.id ?? c.toolCallId ?? ''
+              const taskId = addTask({
+                type: 'blockchain',
+                title: 'Minting credential on Solana',
+                status: 'running',
+              })
+              if (toolCallId) toolCallToTaskId[toolCallId] = taskId
+              continue
+            }
           }
         } else if (m?.type === 'tool-calls-result' || m?.type === 'function-call-result') {
           hooks.toolCallEnd()

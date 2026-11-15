@@ -146,6 +146,115 @@ Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TI
 - **Amrita (quiz):** materials (PDF text) are the next thing I build; until then use `mocks/canvas_snapshot.json` → `materials`.
 - **Shruti (UI):** render `items` directly; every item has `source_url`, `due_at`, `notes`; show "syncing…" while `/sync` runs.
 
+## Asks from orchestrator (Saswata) — unblocks voice demo
+
+System design is locked (`context/saswata.md` → "System design — LOCKED"). Your service stays stateless; brain owns supermemory. Three small endpoints + one pipeline bump unblock the whole voice path. All in your existing cache / Snapshot shape, no architectural change.
+
+### Step 1 — `GET /brief?days=7` (highest priority, ~15 min)
+
+Single bundled call for voice "good morning / what's due" and the Daily Pulse cron. Saves 2-3 round trips per common prompt.
+
+```python
+class BriefResponse(BaseModel):
+    synced_at: datetime
+    last_sync_age_minutes: float
+    sync_in_progress: bool = False
+    items: list[Item]        # to-do only, soonest first
+    courses: list[Course]    # current-term only
+
+@app.get("/brief", response_model=BriefResponse)
+async def brief(request: Request, days: int = Query(7, ge=1, le=60)):
+    snap = await snapshot_or_502(request)
+    items = BrowserAgentService.next_items(snap, days, include_done=False)
+    age_min = (datetime.now(timezone.utc) - snap.synced_at).total_seconds() / 60
+    return BriefResponse(items=items, courses=snap.courses, synced_at=snap.synced_at,
+                        last_sync_age_minutes=round(age_min, 1))
+```
+
+Brain calls this as `get_daily_brief`. This becomes the single most-called tool in the system.
+
+### Step 2 — `GET /items/{item_id}` (~5 min)
+
+For "tell me more about HW3" — full details from cached snapshot.
+
+```python
+@app.get("/items/{item_id}", response_model=Item)
+async def item_detail(request: Request, item_id: str):
+    snap = await snapshot_or_502(request)
+    for i in snap.items:
+        if i.id == item_id:
+            return i
+    raise HTTPException(status_code=404, detail=f"item {item_id} not found")
+```
+
+Brain calls this as `get_item_details`.
+
+### Step 3 — `POST /items/{item_id}/user-done` (~20 min)
+
+Student says "I already did HW3." We flag locally until next sync overwrites. Canvas remains untouched.
+
+Semantics:
+- Does NOT write to Canvas. Read-only service stays read-only.
+- Flags `in_todo=false`, `todo_reason="Marked done by student (override; next Canvas sync will reconcile)"`.
+- Next `POST /sync` wipes it. Canvas truth wins when fresh.
+- Brain writes "student says X done at <ts>" to supermemory so it survives the resync.
+
+```python
+# routes
+@app.post("/items/{item_id}/user-done", response_model=Item)
+async def mark_user_done(request: Request, item_id: str):
+    return await request.app.state.service.mark_user_done(item_id)
+
+# BrowserAgentService
+async def mark_user_done(self, item_id: str) -> Item:
+    async with self._lock:
+        snap = self.cache.load()
+        if snap is None:
+            raise HTTPException(503, "no snapshot yet; call /sync first")
+        for idx, i in enumerate(snap.items):
+            if i.id == item_id:
+                snap.items[idx] = i.model_copy(update={
+                    "in_todo": False,
+                    "todo_reason": "Marked done by student (override; next Canvas sync will reconcile)",
+                })
+                self.cache.save(snap)
+                return snap.items[idx]
+        raise HTTPException(404, f"item {item_id} not found")
+```
+
+Brain calls this as `mark_item_done_locally`.
+
+### Step 4 — reinforces your existing Next Steps #1 (materials)
+
+Already your top priority. Minimal first cut unblocks Amrita even without PDF extraction:
+
+- `TinyFishBackend.fetch_materials(course)` reads `/api/v1/courses/{id}/files` + `/api/v1/courses/{id}/modules` (same JSON pattern as planner/items).
+- Return `Material` with `id`, `course_id`, `title`, `type`, `url`.
+- Text extraction (your step 1's `pypdf` pass) can land in a second commit — Amrita can validate her embedding pipeline off URLs first.
+
+### Non-goals — explicitly NOT asked
+
+- No supermemory writes from your service. Brain owns that.
+- No streaming responses. Cached calls are 20ms.
+- No per-user auth.
+- No Canvas writes.
+
+### Orchestrator's tool catalog pointing at your service (reference)
+
+| Tool name (brain) | Endpoint (you) | New? |
+|---|---|---|
+| `get_todo_list(days)` | `GET /items/next?days=` | existing |
+| `get_daily_brief(days)` | `GET /brief?days=` | **NEW — step 1** |
+| `get_item_details(item_id)` | `GET /items/{item_id}` | **NEW — step 2** |
+| `get_course_items(course_id, include_done)` | `GET /items?course_id=` | existing |
+| `list_courses()` | `GET /courses` | existing |
+| `get_course_materials(course_id, topic_hint?)` | `GET /materials?course_id=` | step 4 fills body |
+| `sync_canvas()` | `POST /sync` | existing |
+| `get_canvas_health()` | `GET /health` | existing |
+| `mark_item_done_locally(item_id)` | `POST /items/{item_id}/user-done` | **NEW — step 3** |
+
+Ping Saswata when steps 1-3 land; that unblocks the orchestrator's first voice end-to-end. Materials (step 4) unblocks Amrita separately.
+
 ## Next steps (in order)
 
 1. **Course materials** — `/api/v1/courses/:id/files` + modules → download PDFs → `pypdf` text → `/materials` (unblocks Amrita).

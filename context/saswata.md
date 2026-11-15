@@ -359,6 +359,132 @@ That's the demo. One prompt, one reply, every lane shows up, memory visible ever
 
 ### Decisions I'm making
 
+### System design — LOCKED (Nov 14, late)
+
+**One brain, many eyes.** Hermes is the brain. Vapi is ears + mouth. Sub-agents are dumb HTTP services. supermemory holds the user state, and only the brain writes to it.
+
+```
+┌──────────────── live voice path (latency-critical) ─────────────────┐
+│                                                                     │
+│   Vapi (STT + TTS)                                                  │
+│       ↕ OpenAI /v1/chat/completions                                 │
+│   Orchestrator wrapper (~100 LOC FastAPI, apps/orchestrator/)       │
+│       ↕ translates to Hermes session                                │
+│   Hermes "shruti" profile (THE BRAIN)                               │
+│       ├─ system prompt (identity + rules + memory policy, static)   │
+│       ├─ tool registry (dynamic, see catalogs below):               │
+│       │    canvas_*       → HTTP :9001 (Abishek)                    │
+│       │    materials_*    → HTTP :9003 (Amrita retrieval+quiz)      │
+│       │    news_*         → HTTP :9004 (Amrita interests)           │
+│       │    gmail_*        → HTTP :9005 (money + ASU emails, later)  │
+│       │    calendar_*     → HTTP :9006 (free/busy + blocks, later)  │
+│       │    hermes-native: memory, delegate_task, cron, terminal     │
+│       └─ supermemory MCP (sole writer of user state)                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌──────────────── background (latency relaxed) ──────────────────────┐
+│                                                                     │
+│   Hermes cron (Daily Pulse @ 6am) — same brain, longer budget       │
+│   Hermes delegate_task — fork sub-agents for heavy parallel work    │
+│   Discord/Slack bot surface — same brain again                      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Why this shape:**
+- Hermes is the brain, not a router. It reasons, delegates, approves, remembers.
+- Sub-agents stay stateless. Fresh data every call. Fault-isolated. Teammates own one folder each.
+- supermemory is the only state. One writer (brain), avoids cross-service race conditions.
+- Same brain powers live voice AND the 6am cron brief. Consistent reasoning.
+
+### supermemory rules — LOCKED
+
+1. **Only the orchestrator (Hermes brain) writes to supermemory.** No sub-agent writes.
+2. **Sub-agents are stateless.** Every HTTP call returns fresh data from its source. In-service caching is allowed (Abishek's snapshot cache is CACHE, not memory).
+3. **The brain reads supermemory at the top of every turn** (via Hermes memory + supermemory MCP) and uses it to decide what to ask sub-agents.
+4. **The brain writes supermemory at the end of a turn** when something changed: new weak topic, new star/skip, intent shift, cross-session fact, user override of a classifier.
+5. **Shared spaces are a brain operation.** Sharing an item ("share this news with Priya") = brain creates a shared supermemory entry both users read. The share tool does not copy data between accounts; it authorizes a slice.
+6. **Classifier opinions ≠ user memory.** Abishek's Gemini says "this is an exam with confidence 0.82" — that lives in the item payload, not supermemory. Supermemory gets facts about the *student*, not facts about the *data*.
+
+### Communication style — LOCKED
+
+- **HTTP, not MCP, for sub-agents.** Our services are FastAPI already; MCP adds no value for localhost-to-localhost. (MCP stays for Vapi MCP, supermemory MCP — where it's native.)
+- **Hermes tool registry maps semantic names → HTTP endpoints.** LLM picks tools by intent, Hermes dispatches over HTTP.
+- **One intent = one tool call.** The brain never composes a tool call out of browser primitives. If a common prompt needs two sub-agents, add a bundled endpoint on the sub-agent side (see `/brief` for Abishek).
+
+### Canvas tool catalog — the brain's view of Abishek's service (9 tools)
+
+```
+# Tier 1 — hot path (brain picks these 90% of the time)
+get_todo_list(days=7)                   → GET /items/next?days=7
+get_daily_brief(days=7)                 → GET /brief?days=7       (NEW — ask Abishek)
+
+# Tier 2 — drill-down
+get_item_details(item_id)               → GET /items/{id}         (NEW — ask Abishek)
+get_course_items(course_id, include_done=True)  → GET /items?course_id=X
+list_courses()                          → GET /courses
+
+# Tier 3 — materials (for Amrita)
+get_course_materials(course_id, topic_hint?)    → GET /materials?course_id=X
+                                                  (currently stub, needs priority)
+
+# Tier 4 — slow / rarely called
+sync_canvas()                           → POST /sync              (10-35s; brain warns user first)
+get_canvas_health()                     → GET /health
+
+# Tier 5 — student override
+mark_item_done_locally(item_id)         → POST /items/{id}/user-done  (NEW — ask Abishek)
+                                           ALSO writes a fact to supermemory
+```
+
+System-prompt policy (what the brain is told about these):
+```
+For "what's due", "work on"               → get_todo_list
+For "morning brief", status               → get_daily_brief
+For "tell me about X"                     → get_item_details
+For "how am I doing in COURSE"            → get_course_items
+For "what classes"                        → list_courses
+For "show me slides/materials"            → get_course_materials
+For "refresh Canvas now" (explicit)       → sync_canvas (warn user, 20s)
+For student override ("I did HW3")        → mark_item_done_locally, then confirm verbally
+Default: prefer cached tools. Never call sync_canvas mid-conversation.
+```
+
+### News / sharing — where curation lives
+
+**Curation happens in the brain, not in the news service.** Rationale:
+- Personalization needs memory (what you starred, skipped, spent time on). Memory lives at the brain.
+- Cross-lane synthesis is brain-only ("the DeepSeek paper you starred Tuesday has a follow-up on HN right now" fuses news + supermemory stars — only the brain can do that).
+- Sharing is a brain action: `share_item(item_id, recipient)` creates a shared supermemory space. News service never writes.
+
+Amrita's news service exposes just three endpoints (data layer only):
+```
+GET  /news/candidates?topics=ai,soccer,anime&since=24h   → raw pool, 50-200 items
+GET  /news/item/{id}                                      → full extracted text
+POST /news/dedupe  body:[items]                           → cluster near-duplicates
+```
+
+The brain then: pulls `supermemory.get_user_interests()` + `get_recent_stars()` + `get_recent_skips()`, hits `/news/candidates`, ranks with a small LLM call against user context, picks 5, writes "served item X" back to supermemory so tomorrow doesn't repeat.
+
+### Build order (next 90 min)
+
+1. `~/.hermes/profiles/shruti/` — pinned model (Gemini 2.5 Flash), approval=manual, minimal skills, supermemory MCP
+2. `shruti` system prompt — identity + rules + tool-policy lines (NO inline tool specs; those auto-inject from registry)
+3. Register HTTP tools pointing at `localhost:9001/*` in the Shruti Hermes config
+4. `apps/orchestrator/main.py` — ~100 LOC FastAPI exposing `/v1/chat/completions`, streaming SSE
+5. Flip Vapi's custom LLM URL from `apps/voice/` to `apps/orchestrator/`
+6. Keep `apps/voice/` as fallback for 1 hour until orchestrator is proven green
+7. First end-to-end test: voice "what's due this week" → Hermes → Abishek's cached snapshot → Vapi speaks real ASU Canvas data
+
+### Blockers / open questions
+
+- Need Abishek's three new endpoints (`/brief`, `/items/{id}`, `/items/{id}/user-done`) and materials pipeline unblocked
+- Supermemory MCP server details (hosted URL or local npx?) — ask sponsor at venue
+- Whether the orchestrator exposes a second SSE route for the web UI, or only Vapi — defer until we know if we need live token streaming in the browser
+
+## Decisions I'm making — session log
+
 - 
 
 ## Blockers

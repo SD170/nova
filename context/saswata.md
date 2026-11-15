@@ -230,11 +230,10 @@ student-jarvis/
 │   └── retrieval-quiz/          # embed + vector store + grounded quiz + grading
 │       ├── README.md
 │       └── ...
-├── packages/                    # shared across apps
-│   ├── schemas/                 # JSON schemas: /chat req/resp, tool call, cards, memory fact shape
-│   └── mocks/                   # canned responses for every tool so everyone can integrate day 0
 └── infra/                       # deploy configs (Vultr, Maritime, AWS) — added later
 ```
+
+Shared JSON contracts (tool call shapes, /chat shape, card types) live in `context/` md, not a code folder. Keeps things lean for the 20h window.
 
 ### Rules
 

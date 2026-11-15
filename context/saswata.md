@@ -181,6 +181,24 @@ Supporting memory moments to layer in if time:
 
 Keep VoiceStudio in the pitch as the "and here's the local / private deployment story" slide. Judges + JFF investors like seeing a credible on-prem path even if the demo is cloud.
 
+## Secrets convention (team rule — follow this for every app)
+
+Every third-party API key / token / credential MUST have a corresponding entry in a `.env.example` file:
+
+- **Service-local secrets** (used only by one app) → `apps/<app>/.env.example` + `apps/<app>/.env` (gitignored)
+- **Cross-app secrets** (shared) → repo-root `.env.example` + repo-root `.env` (gitignored)
+
+`.env.example` is committed with **empty values and a comment** pointing to where the key is obtained. Real `.env` files are never committed — the root `.gitignore` already excludes them.
+
+Example for `apps/voice/.env.example`:
+```
+# Grab from https://dashboard.vapi.ai (Org Settings → API Keys)
+VAPI_PRIVATE_KEY=
+VAPI_PUBLIC_KEY=
+```
+
+Rule for every PR: if you added a new env var, you updated `.env.example` in the same commit.
+
 ## Repo folder layout (per-chunk, each person owns a folder)
 
 Each P0 chunk gets its own folder under `apps/`. Keeps teammates from stepping on each other's code, makes diffs clean, makes it obvious what's done.

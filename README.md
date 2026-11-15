@@ -1,7 +1,7 @@
 
 <div align="center">
 
-# 🎙️ STUDENT JARVIS
+# 🎙️ STUDENT JARVIS  
 
 ## Your Student Life. One Intelligent Assistant.
 

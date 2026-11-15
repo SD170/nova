@@ -115,6 +115,15 @@ def nova_config(shruti_id: str) -> dict:
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 600,
+        # Aggressive barge-in: Vapi stops speaking as soon as user says even 1 word.
+        "startSpeakingPlan": {
+            "waitSeconds": 0.3,
+            "smartEndpointingPlan": {"provider": "livekit",
+                                     "waitFunction": "20 + 500 * sqrt(x) + 2500 * x^3"},
+        },
+        "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
+        "backgroundDenoisingEnabled": True,
+        "responseDelaySeconds": 0.1,
     }
 
 
@@ -148,6 +157,15 @@ def shruti_config(nova_id: str) -> dict:
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 600,
+        # Aggressive barge-in: Vapi stops speaking as soon as user says even 1 word.
+        "startSpeakingPlan": {
+            "waitSeconds": 0.3,
+            "smartEndpointingPlan": {"provider": "livekit",
+                                     "waitFunction": "20 + 500 * sqrt(x) + 2500 * x^3"},
+        },
+        "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
+        "backgroundDenoisingEnabled": True,
+        "responseDelaySeconds": 0.1,
     }
 
 

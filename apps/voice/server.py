@@ -140,6 +140,15 @@ def _tool_create_study_block(args: dict) -> dict:
     }
 
 
+def _tool_set_name(args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "error": "name is required"}
+    # Persist to a side-file so the next cold-start remembers. Lightweight.
+    (HERE / ".assistant_name").write_text(name)
+    return {"ok": True, "name": name, "message": f"Okay, I'll go by {name} from now on."}
+
+
 TOOLS = {
     "get_courses": _tool_get_courses,
     "get_assignments": _tool_get_assignments,
@@ -147,6 +156,7 @@ TOOLS = {
     "generate_exam_quiz": _tool_generate_exam_quiz,
     "get_calendar_events": _tool_get_calendar_events,
     "create_study_block": _tool_create_study_block,
+    "set_name": _tool_set_name,
 }
 
 

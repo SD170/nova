@@ -291,8 +291,6 @@ Student wakes up → single brief. Not a feed, not a dashboard. **One curated pa
 - Output: 3-5 items max, in my voice ("The paper you were reading last week got cited in X.")
 
 #### Lane 3: money (the one that keeps me up)
-- **Cleo has no public API** — checked. Their "API" profiles online are third-party docs of UK Open Banking rails (PSD2). Not for US students, not for personal apps.
-- **Plaid** is what Cleo + every other US fintech uses underneath. Free dev tier, 100+ banks, read-only transaction sync. Good for the "post-hackathon" slide.
 - **For the demo (and honestly the real pain):** use **Gmail read-only** as the money signal. Bank + ASU already send you everything:
   - ASU financial aid disbursement emails
   - Tuition / rent due reminders
@@ -300,6 +298,7 @@ Student wakes up → single brief. Not a feed, not a dashboard. **One curated pa
   - CPT paycheck confirmations (Vapi Inc for you)
   - Visa / insurance renewal reminders
 - Agent scans the inbox daily via Gmail API (OAuth read-only scope), extracts money events, flags "rent due in 5 days, balance low based on last Chase alert."
+- **Plaid** is available later (free dev tier, 100+ US banks, read-only transaction sync) if we want real balances post-hackathon. Not in demo scope.
 - Output: "Heads up: tuition payment plan second installment hits Dec 3rd ($2,850). You have 2 Vapi paychecks before then — you're fine."
 
 #### Lane 4: logistics (the glue)

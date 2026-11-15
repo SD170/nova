@@ -69,7 +69,6 @@ h2 { font-size: 1.375rem; }
 .card__topic { margin: 0; color: var(--green-2); font-size: .8125rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .card__title { margin: 0; font-family: var(--serif); font-size: 1.1875rem; line-height: 1.3; }
 .card__title a { color: var(--text); text-decoration: none; }
-.card__title a::after { content: ""; position: absolute; inset: 0; border-radius: var(--r); }
 .card__title a:hover { text-decoration: underline; text-decoration-color: var(--green); }
 .card__summary { margin: 0; color: var(--muted); font-size: .9375rem; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .card__meta { margin: auto 0 0; color: var(--muted); font-size: .875rem; }
@@ -79,3 +78,19 @@ h2 { font-size: 1.375rem; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+.verify { margin: 0; font-size: .875rem; font-weight: 700; color: var(--muted); }
+.verify--ok { color: var(--green-2); text-shadow: 0 0 12px rgb(44 245 154 / 35%); }
+.also { font-size: .875rem; color: var(--muted); }
+.also summary { cursor: pointer; min-height: 2rem; display: flex; align-items: center; }
+.also ul { margin: .25rem 0 0; padding-left: 1.1rem; }
+.switch { display: flex; gap: .75rem; align-items: center; min-height: 2.75rem; margin-bottom: 1rem; font-weight: 700; cursor: pointer; }
+.switch input { width: 1.375rem; height: 1.375rem; accent-color: var(--green); flex: none; }
+.switch .hint { font-weight: 400; }
+
+.pushbox { margin-top: 1rem; max-width: 52rem; }
+.push-on { margin-top: .5rem; padding: 1rem 1.2rem; border-radius: var(--r); border: 1px solid var(--line-2); background: rgb(44 245 154 / 7%); box-shadow: var(--glow); }
+.push-on__title { margin: 0 0 .25rem; font-weight: 700; color: var(--green-2); }
+.push-on__row { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin-top: .75rem; }
+.push-on__row label { font-weight: 700; }
+.push-on .input--select { flex: 0 1 8rem; }

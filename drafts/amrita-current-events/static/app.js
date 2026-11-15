@@ -6,7 +6,8 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage blocked */ } },
 };
 
-let interests = store.get("jarvisNews.interests", null);
+let interests = store.get("jarvisNews.interests.v2", null);
+let trustedOnly = store.get("jarvisNews.trusted", true);
 let seen = new Set(store.get("jarvisNews.seen", []));
 let filter = "All";
 let last = null;
@@ -33,17 +34,17 @@ function ago(iso) {
   return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-const KIND = { topic: "Topic", sports: "Sports", course: "Course", tech: "Tech" };
+const KIND = { section: "Section", topic: "Topic", sports: "Sports", course: "Course", tech: "Tech" };
 
-function saveInterests() { store.set("jarvisNews.interests", interests); }
+function saveInterests() { store.set("jarvisNews.interests.v2", interests); }
 
 function renderChips() {
   $("chips").replaceChildren(...interests.map((it, idx) => h("li", { class: "chip", "data-on": String(it.on !== false) },
     h("button", { type: "button", class: "chip__toggle", "aria-pressed": String(it.on !== false),
-      onclick: () => { it.on = it.on === false; saveInterests(); renderChips(); load(); } },
+      onclick: () => { it.on = it.on === false; saveInterests(); renderChips(); load(); syncPushPrefs(); } },
       it.label, h("span", { class: "chip__kind" }, KIND[it.kind] || "")),
     h("button", { type: "button", class: "chip__remove", "aria-label": `Remove ${it.label}`,
-      onclick: () => { interests.splice(idx, 1); saveInterests(); renderChips(); load(); announce(`${it.label} removed.`); } }, "×"))));
+      onclick: () => { interests.splice(idx, 1); saveInterests(); renderChips(); load(); syncPushPrefs(); announce(`${it.label} removed.`); } }, "×"))));
 }
 
 function renderTabs(items) {
@@ -61,6 +62,11 @@ function renderFeed() {
     h("p", { class: "card__topic" }, i.topic, i._new ? h("span", { class: "new" }, "New") : null),
     h("h3", { class: "card__title" }, h("a", { href: i.url, target: "_blank", rel: "noopener noreferrer" }, i.title)),
     i.summary ? h("p", { class: "card__summary" }, i.summary) : null,
+    h("p", { class: `verify ${i.confirmed ? "verify--ok" : ""}` },
+      i.confirmed ? `✓ Confirmed by ${i.outlets} outlets` : "Single source so far"),
+    i.also_reported_by?.length ? h("details", { class: "also" },
+      h("summary", {}, `Also reported by ${i.also_reported_by.map((a) => a.source).join(", ")}`),
+      h("ul", {}, i.also_reported_by.map((a) => h("li", {}, h("a", { href: a.url, target: "_blank", rel: "noopener noreferrer" }, a.source))))) : null,
     h("p", { class: "card__meta" }, `${i.source} · ${ago(i.published_at)}`)))
     : [h("li", { class: "card card--empty" }, "No headlines for these interests right now. Try adding another topic.")]));
 }
@@ -76,7 +82,7 @@ async function load({ notify = false } = {}) {
   $("meta").textContent = "Refreshing…";
   try {
     const r = await fetch("/news/digest", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ interests: active, per_topic: 5 }) });
+      body: JSON.stringify({ interests: active, per_topic: 5, window_hours: 24, trusted_only: trustedOnly }) });
     if (!r.ok) throw new Error();
     last = await r.json();
   } catch {
@@ -89,41 +95,111 @@ async function load({ notify = false } = {}) {
   store.set("jarvisNews.seen", [...seen].slice(-600));
   $("digest-text").textContent = last.speak;
   const failed = last.sources.filter((s) => !s.ok).map((s) => s.topic);
-  $("meta").textContent = `Updated ${new Date(last.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+  const confirmed = last.items.filter((i) => i.confirmed).length;
+  const keys = Object.entries(last.keys || {}).filter(([, on]) => on).map(([k]) => k);
+  $("meta").textContent = `Last 24 hours · ${last.items.length} stories, ${confirmed} confirmed by 2+ outlets · updated `
+    + new Date(last.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    + (keys.length ? ` · extra sources: ${keys.join(", ")}` : "")
     + (failed.length ? ` · couldn't load: ${failed.join(", ")}` : "");
   renderFeed();
-  if (notify && !firstRun && fresh.length) {
-    announce(`${fresh.length} new headline${fresh.length === 1 ? "" : "s"}.`);
-    sendNotifications(fresh);
-  }
+  if (notify && !firstRun && fresh.length) announce(`${fresh.length} new headline${fresh.length === 1 ? "" : "s"}.`);
 }
 
-// ───────── notifications ─────────
-function notifyOn() { return store.get("jarvisNews.notify", false) && "Notification" in window && Notification.permission === "granted"; }
-function syncNotifyBtn() {
-  const on = notifyOn();
+// ───────── phone push notifications (work even when this page is closed) ─────────
+let swReg = null;
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const standalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const pushSupported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+
+function b64ToBytes(s) {
+  const pad = "=".repeat((4 - (s.length % 4)) % 4);
+  const raw = atob((s + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function currentSub() { return swReg ? swReg.pushManager.getSubscription() : null; }
+
+function prefsBody(sub) {
+  return {
+    subscription: sub.toJSON(),
+    interests: interests.filter((i) => i.on !== false),
+    trusted_only: trustedOnly,
+    tz_offset_min: new Date().getTimezoneOffset(),
+    quiet_start: Number($("quiet-start").value), quiet_end: Number($("quiet-end").value),
+  };
+}
+
+async function syncPushPrefs() {
+  const sub = await currentSub();
+  if (!sub) return;
+  await fetch("/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prefsBody(sub)) }).catch(() => {});
+}
+
+async function renderPush() {
+  const sub = await currentSub();
+  const on = Boolean(sub) && Notification.permission === "granted";
   $("notify-btn").setAttribute("aria-pressed", String(on));
-  $("notify-btn").textContent = on ? "Notifications on" : "Turn on notifications";
-}
-function sendNotifications(items) {
-  if (!notifyOn()) return;
-  for (const i of items.slice(0, 3)) {
-    const n = new Notification(`${i.topic}: ${i.title}`, { body: `${i.source} · tap to read`, tag: i.id });
-    n.onclick = () => { window.open(i.url, "_blank", "noopener"); n.close(); };
+  $("notify-btn").textContent = on ? "Phone alerts on" : "Get phone alerts";
+  $("push-on").hidden = !on;
+  let help = "";
+  if (!pushSupported && isIOS && !standalone) {
+    help = "On iPhone: tap the Share button, choose “Add to Home Screen”, then open Jarvis News from your home screen and tap “Get phone alerts”.";
+  } else if (!pushSupported) {
+    help = "This browser can't receive push notifications. Try Chrome on Android, or Safari on iPhone after adding this page to your Home Screen.";
+  } else if (Notification.permission === "denied") {
+    help = "Notifications are blocked for this site. Allow them in your browser or phone settings, then try again.";
+  } else if (!on) {
+    help = "Get the day's confirmed headlines for your interests on your phone, even when this page is closed.";
   }
-  if (items.length > 3) new Notification(`Jarvis: ${items.length - 3} more new headlines`, { tag: "more" });
+  $("push-help").textContent = help;
 }
+
 $("notify-btn").addEventListener("click", async () => {
-  if (!("Notification" in window)) { announce("This browser doesn't support notifications."); return; }
-  if (notifyOn()) { store.set("jarvisNews.notify", false); syncNotifyBtn(); announce("Notifications off."); return; }
-  const p = await Notification.requestPermission();
-  store.set("jarvisNews.notify", p === "granted");
-  syncNotifyBtn();
-  if (p === "granted") {
-    new Notification("Jarvis news notifications are on", { body: "I'll let you know when new headlines match your interests." });
-    announce("Notifications on.");
-  } else announce("Notifications are blocked. You can allow them in your browser's site settings.");
+  if (!pushSupported) { await renderPush(); announce($("push-help").textContent); return; }
+  const existing = await currentSub();
+  if (existing) {
+    await fetch("/push/unsubscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: existing.endpoint }) }).catch(() => {});
+    await existing.unsubscribe();
+    await renderPush();
+    announce("Phone alerts off.");
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") { await renderPush(); announce("Notifications weren't allowed."); return; }
+  try {
+    const { publicKey } = await (await fetch("/push/public-key")).json();
+    const sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(publicKey) });
+    const r = await fetch("/push/subscribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(prefsBody(sub)) });
+    if (!r.ok) throw new Error();
+    announce("Phone alerts on. You'll get today's top confirmed story now, then new ones as they break.");
+  } catch {
+    announce("Couldn't turn on phone alerts. Please try again.");
+  }
+  await renderPush();
 });
+
+$("push-test").addEventListener("click", async () => {
+  const sub = await currentSub();
+  if (!sub) return;
+  const r = await fetch("/push/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+  announce(r.ok ? "Test alert sent. Check your notifications." : "The test alert didn't send. Try turning alerts off and on.");
+});
+for (const id of ["quiet-start", "quiet-end"]) {
+  $(id).addEventListener("change", () => { store.set(`jarvisNews.${id}`, $(id).value); syncPushPrefs(); announce("Quiet hours saved."); });
+}
+
+async function initPush() {
+  for (const [id, d] of [["quiet-start", "22"], ["quiet-end", "7"]]) {
+    for (let hr = 0; hr < 24; hr++) {
+      $(id).append(h("option", { value: String(hr) }, new Date(2000, 0, 1, hr).toLocaleTimeString([], { hour: "numeric" })));
+    }
+    $(id).value = store.get(`jarvisNews.${id}`, d);
+  }
+  if (pushSupported) {
+    try { swReg = await navigator.serviceWorker.register("/sw.js", { scope: "/" }); } catch { swReg = null; }
+  }
+  await renderPush();
+}
 
 // ───────── spoken digest ─────────
 $("speak-btn").addEventListener("click", () => {
@@ -133,6 +209,13 @@ $("speak-btn").addEventListener("click", () => {
   u.onend = u.onerror = () => { $("speak-btn").textContent = "Read my digest aloud"; };
   speechSynthesis.speak(u);
   $("speak-btn").textContent = "Stop reading";
+});
+
+// ───────── trusted toggle ─────────
+$("trusted").checked = trustedOnly;
+$("trusted").addEventListener("change", (e) => {
+  trustedOnly = e.target.checked; store.set("jarvisNews.trusted", trustedOnly);
+  announce(trustedOnly ? "Showing trusted newsrooms only." : "Showing all sources."); load(); syncPushPrefs();
 });
 
 // ───────── add interest ─────────
@@ -147,6 +230,7 @@ $("add-form").addEventListener("submit", (e) => {
   renderChips();
   announce(`${label} added.`);
   load();
+  syncPushPrefs();
 });
 
 // ───────── ambient particles (decorative; still when reduced motion) ─────────
@@ -182,13 +266,14 @@ function ambient() {
 
 // ───────── start ─────────
 (async () => {
+  $("today").textContent = `Today · ${new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`;
   if (!interests) {
     try { interests = (await (await fetch("/news/interests")).json()).items.map((i) => ({ ...i, on: true })); }
     catch { interests = [{ label: "World", kind: "topic", section: "WORLD", on: true }]; }
     saveInterests();
   }
   renderChips();
-  syncNotifyBtn();
+  await initPush();
   ambient();
   await load();
   setInterval(() => load({ notify: true }), REFRESH_MS);

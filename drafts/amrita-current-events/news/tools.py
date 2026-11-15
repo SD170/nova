@@ -8,18 +8,23 @@ from __future__ import annotations
 
 import asyncio
 
-from . import digest
+from . import digest, outlets
 
 
 def get_news_digest(args: dict) -> dict:
     """args: {interests?: [{label, kind, query?, league?}], topics?: ["politics", ...], per_topic?: int}"""
     interests = args.get("interests")
     if not interests and args.get("topics"):
-        interests = [{"label": t, "kind": "topic", "query": t} for t in args["topics"]]
+        interests = [
+            {"label": t.title(), "kind": "section", "section": t.lower()} if t.lower() in outlets.SECTIONS
+            else {"label": t, "kind": "topic", "query": t}
+            for t in args["topics"]
+        ]
     result = asyncio.run(digest.build(interests, per_topic=int(args.get("per_topic") or 3)))
     return {
         "speak": result["speak"],
-        "items": [{k: i[k] for k in ("id", "title", "source", "url", "published_at", "topic")} for i in result["items"]],
+        "items": [{k: i[k] for k in ("id", "title", "source", "url", "published_at", "topic", "outlets", "confirmed")}
+                  for i in result["items"]],
         "source_url_required": True,
     }
 

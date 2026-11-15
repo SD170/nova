@@ -11,7 +11,9 @@ Every item carries its source URL so Jarvis can always cite where a headline cam
 """
 from __future__ import annotations
 
+import asyncio
 import email.utils
+import weakref
 import hashlib
 import os
 import re
@@ -58,8 +60,30 @@ class Item:
         return self.__dict__.copy()
 
 
-def client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=8, headers=UA, transport=TRANSPORT, follow_redirects=True)
+_CLIENTS: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+class _SharedClient:
+    """One pooled AsyncClient per event loop. Creating a client per request costs
+    a full TLS setup each time (44 feeds: ~69s vs ~10s pooled)."""
+
+    async def __aenter__(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        per_loop = _CLIENTS.setdefault(loop, {})
+        key = id(TRANSPORT)
+        c = per_loop.get(key)
+        if c is None or c.is_closed:
+            c = httpx.AsyncClient(timeout=httpx.Timeout(10, connect=6), headers=UA, transport=TRANSPORT,
+                                  follow_redirects=True, limits=httpx.Limits(max_connections=48))
+            per_loop[key] = c
+        return c
+
+    async def __aexit__(self, *exc) -> bool:
+        return False  # keep the pool open for the next request
+
+
+def client() -> _SharedClient:
+    return _SharedClient()
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:

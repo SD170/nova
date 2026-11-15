@@ -9,6 +9,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap">
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#040706">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jarvis News">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232CF59A'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='%2302150C' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
   <script type="module" src="/static/app.js"></script>
 </head>
@@ -21,17 +27,29 @@
       <p class="brand"><span class="brand__dot" aria-hidden="true"></span>Student Jarvis <span class="brand__sub">Current events</span></p>
       <div class="top__actions">
         <button type="button" class="btn" id="speak-btn">Read my digest aloud</button>
-        <button type="button" class="btn btn--primary" id="notify-btn" aria-pressed="false">Turn on notifications</button>
+        <button type="button" class="btn btn--primary" id="notify-btn" aria-pressed="false">Get phone alerts</button>
       </div>
     </div>
   </header>
 
   <main class="wrap">
     <section class="hero" aria-labelledby="title">
-      <p class="eyebrow">Your news, your interests</p>
-      <h1 id="title">What's happening right now</h1>
+      <p class="eyebrow" id="today">Today</p>
+      <h1 id="title">What's happening today</h1>
       <p class="lede" id="digest-text">Gathering headlines about politics, sports, your courses and whatever else you follow…</p>
       <p class="meta" id="meta" aria-live="polite"></p>
+      <div class="pushbox">
+        <p class="hint" id="push-help"></p>
+        <div id="push-on" class="push-on" hidden>
+          <p class="push-on__title">Phone alerts are on</p>
+          <p class="hint">You'll get new stories that at least two newsrooms have confirmed, matched to your interests below. Changing your interests updates your alerts.</p>
+          <div class="push-on__row">
+            <label for="quiet-start">Quiet from</label><select id="quiet-start" class="input input--select"></select>
+            <label for="quiet-end">until</label><select id="quiet-end" class="input input--select"></select>
+            <button type="button" class="btn" id="push-test">Send a test alert</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="panel" aria-labelledby="int-title">
@@ -40,6 +58,7 @@
         <p class="hint">Tap to turn a topic on or off. Course topics are sample courses until Canvas is connected.</p>
       </div>
       <ul class="chips" id="chips"></ul>
+      <label class="switch"><input type="checkbox" id="trusted"> <span>Trusted newsrooms only <span class="hint">(AP, Reuters, NPR, BBC, NYT, PBS, ESPN and other established outlets)</span></span></label>
       <form class="add" id="add-form">
         <label for="add-label">Add something you care about</label>
         <div class="add__row">
@@ -63,7 +82,7 @@
       <ol class="cards" id="cards"><li class="card card--loading">Loading headlines…</li></ol>
     </section>
 
-    <p class="foot">Headlines come from free public sources (Google News, ESPN, Hacker News) and link to the original publisher. Refreshes every 5 minutes.</p>
+    <p class="foot">Stories from the last 24 hours, straight from newsroom feeds (NPR, BBC, The New York Times, PBS, The Guardian, CBS, ABC, Al Jazeera, Washington Post, ESPN, Nature and more) plus news search. The same story from different outlets is grouped so you can see how many independently reported it. Always open the original article before sharing. Refreshes every 5 minutes.</p>
   </main>
 
   <div id="live" class="visually-hidden" aria-live="polite"></div>

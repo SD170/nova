@@ -1,0 +1,5 @@
+# Local secrets and per-device data — never commit
+.env
+.vapid_private.pem
+subscriptions.json
+subscriptions.tmp

@@ -183,12 +183,15 @@ Keep VoiceStudio in the pitch as the "and here's the local / private deployment 
 
 ## Secrets convention (team rule — follow this for every app)
 
-Every third-party API key / token / credential MUST have a corresponding entry in a `.env.example` file:
+Three config tiers:
 
-- **Service-local secrets** (used only by one app) → `apps/<app>/.env.example` + `apps/<app>/.env` (gitignored)
-- **Cross-app secrets** (shared) → repo-root `.env.example` + repo-root `.env` (gitignored)
+| File | Committed? | What goes in |
+|---|---|---|
+| `shared.env` (repo root) | **yes** | Non-secret shared values every service needs: assistant IDs, public URLs, port numbers. One source of truth — update here, teammates `git pull` + autosync picks it up. |
+| `apps/<app>/.env.example` | **yes** | Template of env vars that service needs, with empty values + a comment pointing to where the real value is obtained. |
+| `apps/<app>/.env` | **no** (gitignored) | Actual API keys, tokens, OAuth creds. Each teammate fills their own. Never commit. |
 
-`.env.example` is committed with **empty values and a comment** pointing to where the key is obtained. Real `.env` files are never committed — the root `.gitignore` already excludes them.
+`.env.example` is committed so teammates know what to put in `.env`. Real `.env` files are excluded by root `.gitignore`.
 
 Example for `apps/voice/.env.example`:
 ```
@@ -197,7 +200,9 @@ VAPI_PRIVATE_KEY=
 VAPI_PUBLIC_KEY=
 ```
 
-Rule for every PR: if you added a new env var, you updated `.env.example` in the same commit.
+Services read `shared.env` for the public-ish values (assistant IDs, tunnel URL, ports) and their local `.env` for secrets.
+
+Rule for every PR: if you added a new env var, you updated `.env.example` (and `shared.env` if it's non-secret and shared) in the same commit.
 
 ## Repo folder layout (per-chunk, each person owns a folder)
 

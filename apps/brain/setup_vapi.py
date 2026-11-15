@@ -116,8 +116,19 @@ def _ask_brain_tool() -> dict:
         },
         "server": {"url": ASK_BRAIN_URL, "timeoutSeconds": 30},
         "messages": [
-            {"type": "request-start", "content": "", "blocking": False},
-            # Brain's own reply is spoken via tool result; no need for request-complete filler
+            # Fires IMMEDIATELY when Nova decides to delegate — hides the ~2-8s Hermes wait.
+            # blocking=false so it layers under the real reply when it arrives.
+            {"type": "request-start",
+             "content": "One sec, let me pull that up.",
+             "blocking": False},
+            # Fires if the brain takes longer than request-start-delayed-millis (default 1s).
+            # Rotating phrases via multiple entries isn't supported; Vapi picks one.
+            {"type": "request-response-delayed",
+             "content": "Still thinking, give me a moment.",
+             "timingMilliseconds": 2000},
+            # Fires if the call to /ask_brain hard-fails.
+            {"type": "request-failed",
+             "content": "Hit a snag reaching that — try again?"},
         ],
     }
 
@@ -134,7 +145,7 @@ def nova_config(shruti_id: str) -> dict:
         "firstMessage": "Hey, Nova here. What do you need?",
         "voice": {
             "provider": "vapi",
-            "voiceId": "Elliot",         # calm, confident, neutral
+            "voiceId": "Rohan",          # Indian male — warm, confident
         },
         "model": {
             "provider": "openai",
@@ -173,7 +184,20 @@ def nova_config(shruti_id: str) -> dict:
         },
         "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
         "backgroundDenoisingEnabled": True,
-        "responseDelaySeconds": 0.1,
+                "responseDelaySeconds": 0.1,
+        # Never idle — speak a filler every 6s while thinking/waiting.
+        "messagePlan": {
+            "idleMessages": [
+                "Still here, one sec.",
+                "Hmm, let me think.",
+                "Working on it.",
+                "Give me a moment.",
+                "Hang on, thinking.",
+            ],
+            "idleTimeoutSeconds": 6,
+            "idleMessageMaxSpokenCount": 5,
+            "silenceTimeoutMessage": "Still here when you need me.",
+        },
     }
 
 
@@ -183,7 +207,7 @@ def shruti_config(nova_id: str) -> dict:
         "firstMessage": "Hey hey, it's me, Shruti. What's up?",
         "voice": {
             "provider": "vapi",
-            "voiceId": "Savannah",       # warmer, friendly (new-gen Vapi voice)
+            "voiceId": "Rohan",          # Indian male — warm, confident
             "speed": 0.95,
         },
         "model": {
@@ -224,7 +248,20 @@ def shruti_config(nova_id: str) -> dict:
         },
         "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
         "backgroundDenoisingEnabled": True,
-        "responseDelaySeconds": 0.1,
+                "responseDelaySeconds": 0.1,
+        # Never idle — speak a filler every 6s while thinking/waiting.
+        "messagePlan": {
+            "idleMessages": [
+                "Still here, one sec.",
+                "Hmm, let me think.",
+                "Working on it.",
+                "Give me a moment.",
+                "Hang on, thinking.",
+            ],
+            "idleTimeoutSeconds": 6,
+            "idleMessageMaxSpokenCount": 5,
+            "silenceTimeoutMessage": "Still here when you need me.",
+        },
     }
 
 

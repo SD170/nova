@@ -3,13 +3,20 @@
 Standalone desktop app (Electron + React + Vite + Three.js): a neon-grid holographic
 head & shoulders over an animated liquid-silk background, driven by push-to-talk.
 
+**Voice backend:** wired to **Nova** (our Hermes brain via Vapi) through `@vapi-ai/web`.
+Set keys in `.env` (see `.env.example`) — `VITE_VAPI_PUBLIC_KEY` + `VITE_VAPI_ASSISTANT_ID`.
+Without them the app silently falls back to the local sample-voice dev path.
+
 ## Run
 
 ```bash
 cd drafts/shruti/app
+cp .env.example .env     # paste VAPI keys from repo-root shared.env / apps/voice/.env
 npm install        # first time only
 npm run dev        # opens the window (hot reload)
 ```
+
+Press and hold **SPACE** to talk — this unmutes the Vapi call; release to mute. The call stays open in the background. Say *"talk to me as Shruti"* mid-call for persona switch (Vapi's `transferCall` → Savannah voice).
 
 `npm start` builds and runs the production bundle instead. macOS asks for mic access
 on first launch.

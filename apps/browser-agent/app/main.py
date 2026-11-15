@@ -26,6 +26,7 @@ from .backends import get_backend
 from .backends.base import CanvasLoginExpired
 from .cache import SnapshotCache
 from .config import Settings, get_settings
+from . import screenshot as screenshot_mod
 from .linkedin import (
     HUMAN_STYLE,
     ActivityEvent,
@@ -220,6 +221,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Backend sync failed: {exc}") from exc
         return s.sync_result(snapshot)
+
+    # Screenshot witness capture (Canvas OR MyASU) — used by the cred-agent to
+    # anchor an image hash into the signed NFT credential. Shares the open
+    # TinyFish Playwright context (app.state.service.backend._ctx), so cookies
+    # from the one-time ASU SSO carry straight into MyASU GETs.
+    app.include_router(screenshot_mod.router, dependencies=protected)
 
     @app.get("/brief", response_model=Brief, dependencies=protected)
     async def brief(request: Request, days: int = Query(7, ge=1, le=60)):

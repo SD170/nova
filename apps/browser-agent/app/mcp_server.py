@@ -187,6 +187,43 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
                 "last_sync": last.isoformat() if last else None,
                 "sync_in_progress": svc.sync_in_progress, "last_error": svc.last_error}
 
+    @mcp.tool(description=(
+        "Capture a PNG screenshot in the live Playwright/TinyFish browser. "
+        "Pass EITHER `path` (Canvas-relative, e.g. '/grades') OR `url` (full https://, "
+        "including MyASU like 'https://webapp4.asu.edu/myasu/student/classes/grades?term=2267'). "
+        "If `selector` is given (e.g. '#schedule-grade-details'), crops to that DOM node. "
+        "ASU SSO cookies persist across pages — MyASU works without re-login. "
+        "Returns {png_b64, target_url, selector, bytes}; the cred-agent uses it as a "
+        "tamper-evident witness inside the signed NFT credential."
+    ))
+    async def capture_screenshot(path: str | None = None,
+                                 url: str | None = None,
+                                 selector: str | None = None,
+                                 full_page: bool = True) -> dict:
+        import base64
+        svc = get_svc()
+        ctx = getattr(svc.backend, "_ctx", None)
+        if ctx is None:
+            return {"error": "browser context not open; call sync_canvas once first"}
+        if (path is None) == (url is None):
+            return {"error": "pass exactly one of `path` or `url`"}
+        target = url or (svc.settings.canvas_base_url.rstrip("/") + path)
+        page = await ctx.new_page()
+        try:
+            await page.goto(target, wait_until="networkidle", timeout=20_000)
+            if selector:
+                handle = await page.wait_for_selector(selector, timeout=20_000, state="attached")
+                if handle is None:
+                    return {"error": f"selector not found: {selector!r}"}
+                await handle.scroll_into_view_if_needed()
+                png = await handle.screenshot(type="png")
+            else:
+                png = await page.screenshot(full_page=full_page, type="png")
+        finally:
+            await page.close()
+        return {"png_b64": base64.b64encode(png).decode(),
+                "target_url": target, "selector": selector, "bytes": len(png)}
+
     if get_li is not None:
         _add_linkedin_tools(mcp, get_li)
     return mcp

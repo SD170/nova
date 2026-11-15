@@ -5,8 +5,8 @@ Docs: http://localhost:9001/docs
 
 MCP:  streamable-HTTP at /mcp (same tools, see mcp_server.py)
 
-Auth: if BROWSER_AGENT_API_KEY is set, every endpoint except /health and the docs
-(including /mcp) needs header `X-Jarvis-Key: <key>` (use "Authorize" in /docs).
+Auth: if CANVAS_API_KEY is set, every endpoint except /health and the docs
+(including /mcp) needs header `X-Canvas-Key: <key>` (use "Authorize" in /docs).
 """
 
 import hmac
@@ -46,8 +46,8 @@ from .service import BrowserAgentService
 
 logging.basicConfig(level=logging.INFO)
 
-API_KEY_HEADER = APIKeyHeader(name="X-Jarvis-Key", auto_error=False,
-                              description="Shared secret (BROWSER_AGENT_API_KEY)")
+API_KEY_HEADER = APIKeyHeader(name="X-Canvas-Key", auto_error=False,
+                              description="Shared secret (CANVAS_API_KEY)")
 
 
 class ItemsResponse(BaseModel):
@@ -87,7 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def require_key(key: str | None = Security(API_KEY_HEADER)) -> None:
         expected = settings.browser_agent_api_key
         if expected and not (key and hmac.compare_digest(key, expected)):
-            raise HTTPException(status_code=401, detail="Missing or wrong X-Jarvis-Key header")
+            raise HTTPException(status_code=401, detail="Missing or wrong X-Canvas-Key header")
 
     app = FastAPI(title="Jarvis browser agent", version="0.3.0", lifespan=lifespan)
     protected = [Depends(require_key)]

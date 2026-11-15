@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # mock = labeled demo data, no keys needed | tinyfish = real Canvas via TinyFish
     browser_backend: Literal["mock", "tinyfish"] = "mock"
 
-    # Shared secret: if set, clients must send header X-Jarvis-Key (needed once public)
+    # Shared secret: if set, clients must send header X-Canvas-Key (needed once public)
     browser_agent_api_key: str = ""
 
     cache_ttl_minutes: int = 30

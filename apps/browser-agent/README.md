@@ -49,7 +49,7 @@ Reads never wait on Canvas: fresh snapshot → instant; stale → instant with t
 
 ## Endpoints (port 9001)
 
-Auth: if `BROWSER_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every endpoint except `/health` and `/docs`.
+Auth: if `CANVAS_API_KEY` is set, send header `X-Canvas-Key` on every endpoint except `/health` and `/docs`.
 
 | Method + path | Returns |
 |---|---|
@@ -64,7 +64,7 @@ Auth: if `BROWSER_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every end
 | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` |
 | `GET /materials?course_id=&topic_hint=&this_week=` | study materials list (syllabus, PDFs, Canvas pages, links) with module + week dates + `text_status`; no text |
 | `GET /materials/{id}/text?offset=&max_chars=` | plain text of one material (`[page N]` markers), cached after first call; long docs in slices via `next_offset` |
-| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Jarvis-Key` |
+| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Canvas-Key` |
 
 Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
 
@@ -72,7 +72,7 @@ Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` �
 
 | Var | Default | Meaning |
 |---|---|---|
-| `BROWSER_AGENT_API_KEY` | empty | Shared secret for `X-Jarvis-Key` (set it before going public) |
+| `CANVAS_API_KEY` | empty | Shared secret for `X-Canvas-Key` (set it before going public) |
 | `BROWSER_BACKEND` | `mock` | `mock` (labeled demo data) / `tinyfish` (real Canvas) |
 | `CACHE_TTL_MINUTES` | `30` | How long a snapshot counts as fresh |
 | `SYNC_DAYS` / `SYNC_PAST_DAYS` | `14` / `0` | Window of items fetched |
@@ -98,7 +98,7 @@ app/
   cache.py              data/canvas_snapshot.json + freshness
   config.py             env settings
   materials.py          Canvas modules/files/syllabus → Material list, week dates, prefetch pick, PDF → text, text cache
-  mcp_server.py         MCP tools at /mcp (same service) + X-Jarvis-Key guard
+  mcp_server.py         MCP tools at /mcp (same service) + X-Canvas-Key guard
   backends/
     base.py             backend contract + CanvasLoginExpired
     tinyfish.py         real Canvas via TinyFish browser + Canvas JSON
@@ -117,7 +117,7 @@ tests/
 uvicorn app.main:app --port 9001                                   # terminal 1
 cloudflared tunnel --no-autoupdate --url http://localhost:9001      # terminal 2 → prints https://xxx.trycloudflare.com
 ```
-Put the URL in repo-root `shared.env` as `PUBLIC_CANVAS_BASE` (it changes every restart). Always set `BROWSER_AGENT_API_KEY` first.
+Put the URL in repo-root `shared.env` as `PUBLIC_CANVAS_BASE` (it changes every restart). Always set `CANVAS_API_KEY` first.
 
 ## Status
 

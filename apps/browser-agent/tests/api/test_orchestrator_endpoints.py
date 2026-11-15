@@ -65,8 +65,8 @@ def test_api_key_required_when_set(make_client):
     assert c.get("/health").status_code == 200  # health stays open
     assert c.get("/docs").status_code == 200  # docs stay open for judges
     assert c.get("/brief").status_code == 401
-    assert c.get("/brief", headers={"X-Jarvis-Key": "wrong"}).status_code == 401
-    assert c.get("/brief", headers={"X-Jarvis-Key": "s3cret"}).status_code == 200
+    assert c.get("/brief", headers={"X-Canvas-Key": "wrong"}).status_code == 401
+    assert c.get("/brief", headers={"X-Canvas-Key": "s3cret"}).status_code == 200
     assert c.post("/sync").status_code == 401
 
 

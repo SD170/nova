@@ -33,14 +33,16 @@ command_allowlist: []
 privacy:
   redact_pii: false
 mcp_servers:
-  # Canvas MCP from Abishek — HTTP shim at /mcp. Wired after he ships TODO 6.
-  # For now we call his REST endpoints via `terminal` + `curl`; swap to this when ready.
-  #
-  # canvas:
-  #   url: ${PUBLIC_CANVAS_BASE}/mcp
-  #   headers:
-  #     X-Jarvis-Key: ${CANVAS_API_KEY}
-  #   timeout: 30
+  # Canvas MCP (Abishek's browser-agent). 11 tools: get_daily_brief,
+  # get_todo_list, get_item_details, list_courses, get_course_items,
+  # get_course_materials, get_material_text, mark_item_done_locally,
+  # unmark_item_done, sync_canvas, get_canvas_health.
+  # Tunnel + key live in apps/brain/.env (gitignored).
+  canvas:
+    url: ${PUBLIC_CANVAS_BASE}/mcp
+    headers:
+      X-Canvas-Key: ${CANVAS_API_KEY}
+    timeout: 30
 provider_routing:
   sort: price
   data_collection: deny

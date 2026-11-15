@@ -70,48 +70,59 @@ def _decode_body(resp: httpx.Response) -> bytes:
         raise ScreenshotUnavailable(f"base64 decode failed: {e}")
 
 
-def capture(path: str = "/", full_page: bool = True,
-            timeout: float = 20.0) -> bytes:
-    """Request a screenshot of `path` from the browser-agent.
+def capture(path: str | None = None,
+            url: str | None = None,
+            selector: str | None = None,
+            full_page: bool = True,
+            timeout: float = 45.0) -> bytes:
+    """Request a screenshot from Abishek's browser-agent.
 
-    `path` is the in-Canvas path (e.g. '/grades', '/courses/1234/grades').
-    `full_page=True` gives Playwright's full-page capture.
+    Pass EITHER `path` (Canvas-relative, e.g. '/grades') OR `url`
+    (full https://, including MyASU). If `selector` is given, the
+    browser-agent crops to that DOM node — ideal for '#schedule-grade-details'
+    on the MyASU grades page.
 
     Returns PNG bytes. Raises ScreenshotUnavailable on any failure mode; the
     caller decides whether to fail the mint or continue witnessless.
     """
-    url = f"{_base_url()}/screenshot"
+    if (path is None) == (url is None):
+        raise ScreenshotUnavailable("pass exactly one of `path` or `url`")
+    endpoint = f"{_base_url()}/screenshot"
+    req_body: dict[str, object] = {"full_page": full_page}
+    if url is not None:
+        req_body["url"] = url
+    else:
+        req_body["path"] = path
+    if selector:
+        req_body["selector"] = selector
     try:
-        resp = httpx.post(
-            url,
-            json={"path": path, "full_page": full_page},
-            headers=_headers(),
-            timeout=timeout,
-        )
+        resp = httpx.post(endpoint, json=req_body, headers=_headers(), timeout=timeout)
     except httpx.RequestError as e:
-        raise ScreenshotUnavailable(f"browser-agent unreachable at {url}: {e}")
+        raise ScreenshotUnavailable(f"browser-agent unreachable at {endpoint}: {e}")
 
     if resp.status_code == 404:
         raise ScreenshotUnavailable(
-            f"{url} returned 404 — Abishek hasn't shipped the screenshot "
+            f"{endpoint} returned 404 — Abishek hasn't shipped the screenshot "
             "route yet. Add FastAPI POST /screenshot in apps/browser-agent/app/main.py."
         )
     if resp.status_code >= 400:
         raise ScreenshotUnavailable(
-            f"{url} returned HTTP {resp.status_code}: {resp.text[:200]}"
+            f"{endpoint} returned HTTP {resp.status_code}: {resp.text[:200]}"
         )
-    body = _decode_body(resp)
-    if len(body) < 64 or body[:8] != b"\x89PNG\r\n\x1a\n":
+    png_bytes = _decode_body(resp)
+    if len(png_bytes) < 64 or png_bytes[:8] != b"\x89PNG\r\n\x1a\n":
         raise ScreenshotUnavailable(
-            f"browser-agent reply does not look like PNG (first 8 = {body[:8]!r})"
+            f"browser-agent reply does not look like PNG (first 8 = {png_bytes[:8]!r})"
         )
-    return body
+    return png_bytes
 
 
-def try_capture(path: str = "/") -> Optional[bytes]:
+def try_capture(path: str | None = None,
+                url: str | None = None,
+                selector: str | None = None) -> Optional[bytes]:
     """Non-raising wrapper: returns PNG bytes on success, None otherwise."""
     try:
-        return capture(path=path)
+        return capture(path=path, url=url, selector=selector)
     except ScreenshotUnavailable as e:
         print(f"[browser_client] screenshot unavailable: {e}")
         return None

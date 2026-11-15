@@ -45,6 +45,15 @@ STATIC_DIR = HERE / "static"
 CRED_DIR.mkdir(exist_ok=True)
 SHOT_DIR.mkdir(exist_ok=True)
 
+# Default witness source for plain-English voice mints ("mint my credentials").
+# MyASU grades page + the Fall-2026 grade-details widget (user-supplied,
+# verified end-to-end via Abishek's capture_screenshot MCP tool on
+# Nov 15 2026 — returned bytes=12804 showing Cumulative GPA 3.72).
+DEFAULT_WITNESS_URL = (
+    "https://webapp4.asu.edu/myasu/student/classes/grades?term=2267"
+)
+DEFAULT_WITNESS_SELECTOR = "#schedule-grade-details"
+
 
 def _load_env_file(p: pathlib.Path) -> None:
     if not p.exists():
@@ -106,6 +115,11 @@ class MintIn(BaseModel):
     # capture the given Canvas path (e.g. '/grades'). Falls back to no witness
     # if the browser-agent is unreachable or lacks the endpoint.
     browser_capture_path: Optional[str] = None
+    # Full URL (MyASU, external sites) — takes precedence over path if both set.
+    browser_capture_url: Optional[str] = None
+    # DOM selector to crop to (e.g. '#schedule-grade-details' on MyASU grades).
+    # Only honored with browser_capture_url/path.
+    browser_capture_selector: Optional[str] = None
     # Optional NFT metadata override. By default we auto-generate from the
     # credential schema.
     nft_name: Optional[str] = None
@@ -177,14 +191,36 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
             raise HTTPException(400, f"screenshot_path not found: {src}")
         src_path = src
         png_bytes = src.read_bytes()
-    elif body.browser_capture_path:
-        png_bytes = browser_client.try_capture(path=body.browser_capture_path)
-        if png_bytes is None:
-            # Honest surface — witness is just missing, mint continues
-            witness["browser_capture_error"] = (
-                f"browser-agent at {os.environ.get('PUBLIC_CANVAS_BASE','?')} "
-                f"did not return a screenshot for {body.browser_capture_path!r}"
+    else:
+        # Pick the witness source.
+        # Priority: explicit url > explicit path > DEFAULT_WITNESS_URL (MyASU).
+        # The default fires for the simplest voice mint ("mint my credentials")
+        # so Nova's end-to-end flow always embeds a tamper-evident grades PNG.
+        shot_url = body.browser_capture_url
+        shot_path = body.browser_capture_path
+        shot_selector = body.browser_capture_selector
+        if not shot_url and not shot_path:
+            shot_url = DEFAULT_WITNESS_URL
+            if not shot_selector:
+                shot_selector = DEFAULT_WITNESS_SELECTOR
+        if shot_url or shot_path:
+            png_bytes = browser_client.try_capture(
+                path=shot_path, url=shot_url, selector=shot_selector
             )
+            if png_bytes is None:
+                # Honest surface — witness is just missing, mint continues
+                src_desc = shot_url or shot_path
+                witness["browser_capture_error"] = (
+                    f"browser-agent at {os.environ.get('PUBLIC_CANVAS_BASE','?')} "
+                    f"did not return a screenshot for {src_desc!r}"
+                    f" (selector={shot_selector!r})"
+                )
+            else:
+                # Attach source hints inside the signed envelope so verifiers
+                # can see WHICH page the witness came from.
+                witness["source_url"] = shot_url or shot_path
+                if shot_selector:
+                    witness["source_selector"] = shot_selector
 
     if png_bytes is not None:
         dst = SHOT_DIR / f"{cred_id}.png"

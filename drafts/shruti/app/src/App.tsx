@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Avatar3D, type Avatar3DHandle, type AvatarState } from './avatar/Avatar3D'
 import { installTestKeys } from './avatar/testKeys'
 import { bindVapi, createVoiceHooks } from './avatar/voiceBridge'
@@ -8,7 +8,21 @@ import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { TaskPanel } from './ui/TaskPanel'
 import { BootTitle } from './ui/BootTitle'
 import { Hud } from './ui/Hud'
-import { NovaDesk } from './nova/NovaDesk'
+// Nova Desk (side panel): only loads when VITE_NOVA_BASE is set, lazily, inside an error guard, so a
+// problem in the desk can never take down the avatar app.
+const NovaDesk = lazy(() => import('./nova/NovaDesk').then((m) => ({ default: m.NovaDesk })))
+class DeskGuard extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+  componentDidCatch(err: unknown) {
+    console.warn('[nova-desk] disabled:', err)
+  }
+  render() {
+    return this.state.failed ? null : this.props.children
+  }
+}
 import { presence } from './avatar/presence'
 import { installTaskChime, toggleMute, warmUpAudio } from './audio/chime'
 import { PushToTalk, type SpeechHandler } from './voice/pushToTalk'
@@ -218,7 +232,13 @@ export default function App() {
       <div className={`ui-layer ${mode === 'boot' ? 'ui-layer--hidden' : ''}`}>
         <Hud />
         <TaskPanel />
-        <NovaDesk />
+        {import.meta.env.VITE_NOVA_BASE ? (
+          <DeskGuard>
+            <Suspense fallback={null}>
+              <NovaDesk />
+            </Suspense>
+          </DeskGuard>
+        ) : null}
       </div>
       <BootTitle />
       <ListeningBadge visible={listening} />

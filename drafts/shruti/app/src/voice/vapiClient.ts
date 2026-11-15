@@ -47,11 +47,21 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
 
   let active = false
   let userStopped = false   // true after explicit stop(); blocks auto-restart
+  // Desired mic state. PTT is the only way to listen, so we default to muted
+  // and ONLY flip to false while SPACE is held. Vapi's web SDK doesn't
+  // persist setMuted() calls made before the call actually opens, and every
+  // reconnect fires a fresh 'call-start' with the mic OPEN by default —
+  // both footguns are fixed by re-applying `desiredMuted` on every
+  // 'call-start' and inside setMuted() itself.
+  let desiredMuted = true
 
   vapi.on('call-start', () => {
     active = true
     userStopped = false
     console.info('[vapi] call started')
+    // Re-assert mute immediately so the mic can't be live before the user
+    // first presses SPACE. Without this the SDK boots with mic=open.
+    try { vapi.setMuted(desiredMuted) } catch { /* ignore */ }
   })
   // Vapi messages carry call.id; stash the latest so the task poller can target it.
   vapi.on('message', (m: any) => {
@@ -100,6 +110,7 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
       active = false
     },
     setMuted(m: boolean) {
+      desiredMuted = m
       try {
         vapi.setMuted(m)
         // If Vapi dropped the call (e.g. silence timeout) and user hits

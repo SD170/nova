@@ -40,3 +40,8 @@ logs/
 
 // hermes
 .hermes/
+
+// autosync artifacts
+.git-autosync.sh
+.git-autosync.log
+.git-autosync.pid

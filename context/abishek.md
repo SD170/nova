@@ -292,6 +292,145 @@ Notes:
 - Quick-tunnel URL changes every cloudflared restart. Pin a named tunnel only if we have time (not blocking).
 - Zero auth on the tunnel for now — service is read-only + no PII beyond the signed-in Canvas account. Fine for 24h hackathon window. **Delete tunnel after the event.**
 
+### [ ] TODO 6 — expose the service as an MCP server (streamable-HTTP)
+
+Reverses the earlier "HTTP, not MCP for sub-agents" decision. Trade: ~2-3h of restructuring vs cleaner Hermes config + standard MCP discovery. Non-functional improvement, same end-to-end latency.
+
+**Goal:** Hermes (and any future MCP client — Claude Code, Cursor, etc.) can discover your Canvas tools via one URL instead of a hand-rolled custom-tools block in the Shruti Hermes profile.
+
+**What to build:** mount an MCP server at `/mcp` on the same FastAPI app (port 9001). Keep the existing REST endpoints alive — the UI uses them, tests use them, nothing else changes. MCP becomes a second face over the same `BrowserAgentService`.
+
+**Transport:** streamable-HTTP (not stdio). Matches how Vapi's and supermemory's MCPs work; works with the tunnel; Hermes's native MCP client supports it.
+
+**Recommended library:** `mcp` (the official Python SDK, already published by Anthropic). Use `FastMCP` — it has a FastAPI integration, you can mount it on the existing app without a second process.
+
+```bash
+pip install "mcp[cli]"
+# (or whatever your requirements.txt lives as — uv/poetry/pip, keep consistent)
+```
+
+**Code sketch:**
+
+```python
+# apps/browser-agent/app/mcp_server.py  (new file)
+from mcp.server.fastmcp import FastMCP
+from .service import BrowserAgentService
+from .models import Item, Course
+
+def build_mcp(svc: BrowserAgentService) -> FastMCP:
+    mcp = FastMCP("canvas", stateless_http=True)   # streamable-HTTP mode
+
+    @mcp.tool(description="Student's to-do list + courses in one call, instant from cache.")
+    async def get_daily_brief(days: int = 7) -> dict:
+        await svc.get_snapshot()
+        brief = await svc.brief(days)
+        return brief.model_dump(mode="json")
+
+    @mcp.tool(description="Upcoming to-do items (not submitted), soonest first.")
+    async def get_todo_list(days: int = 7, include_done: bool = False) -> dict:
+        snap = await svc.get_snapshot()
+        items = BrowserAgentService.next_items(snap, days, include_done)
+        return {"synced_at": snap.synced_at.isoformat(),
+                "data_source": snap.data_source.value,
+                "items": [i.model_dump(mode="json") for i in items]}
+
+    @mcp.tool(description="Full details for one Canvas item by id.")
+    async def get_item_details(item_id: str) -> dict:
+        await svc.get_snapshot()
+        item = await svc.get_item(item_id)
+        return item.model_dump(mode="json")
+
+    @mcp.tool(description="Student marks an item done locally (Canvas unchanged).")
+    async def mark_item_done_locally(item_id: str) -> dict:
+        item = await svc.mark_user_done(item_id)
+        return item.model_dump(mode="json")
+
+    @mcp.tool(description="Undo mark-done (student didn't actually finish it).")
+    async def unmark_item_done(item_id: str) -> dict:
+        item = await svc.undo_user_done(item_id)
+        return item.model_dump(mode="json")
+
+    @mcp.tool(description="List current-term courses (ones with work due).")
+    async def list_courses() -> dict:
+        snap = await svc.get_snapshot()
+        return {"synced_at": snap.synced_at.isoformat(),
+                "courses": [c.model_dump(mode="json") for c in snap.courses]}
+
+    @mcp.tool(description="Items for one course (include_done to see submitted work too).")
+    async def get_course_items(course_id: str, include_done: bool = True) -> dict:
+        snap = await svc.get_snapshot()
+        items = [i for i in snap.items if i.course_id == course_id]
+        if not include_done:
+            items = [i for i in items if i.in_todo]
+        return {"synced_at": snap.synced_at.isoformat(),
+                "items": [i.model_dump(mode="json") for i in items]}
+
+    @mcp.tool(description="Course materials for Amrita's quiz engine — may be empty until TODO 4 lands.")
+    async def get_course_materials(course_id: str) -> dict:
+        snap = await svc.get_snapshot()
+        mats = [m for m in snap.materials if m.course_id == course_id]
+        return {"materials": [m.model_dump(mode="json") for m in mats]}
+
+    @mcp.tool(description="Force a fresh Canvas pull (10-35s). Explicit user ask only.")
+    async def sync_canvas() -> dict:
+        snap = await svc.sync()
+        return svc.sync_result(snap).model_dump(mode="json")
+
+    @mcp.tool(description="Service health + last-sync age + sync-in-progress flag.")
+    async def get_canvas_health() -> dict:
+        return {"ok": svc.last_error is None,
+                "backend": svc.backend.name,
+                "last_sync": svc.last_sync().isoformat() if svc.last_sync() else None,
+                "sync_in_progress": svc.sync_in_progress,
+                "last_error": svc.last_error}
+
+    return mcp
+```
+
+Then mount it on the existing app in `main.py`:
+
+```python
+# in create_app(), after app = FastAPI(...)
+from .mcp_server import build_mcp
+# svc is created in lifespan; mount the MCP after the service is available
+# (FastMCP supports attaching to a FastAPI app via its ASGI sub-app)
+mcp = build_mcp(app.state.service)        # wire inside lifespan startup
+app.mount("/mcp", mcp.streamable_http_app())
+```
+
+Register auth on the MCP route too — same `X-Jarvis-Key` header dependency as the REST routes. Don't ship an open MCP on a public tunnel.
+
+**Hermes side (Saswata handles this, not you — reference only):**
+
+```yaml
+# ~/.hermes/profiles/shruti/config.yaml
+mcp_servers:
+  canvas:
+    url: ${PUBLIC_CANVAS_BASE}/mcp
+    headers:
+      X-Jarvis-Key: ${CANVAS_API_KEY}
+    timeout: 30
+```
+
+After this, Hermes's tool registry auto-discovers tools as `mcp_canvas_get_daily_brief`, `mcp_canvas_get_todo_list`, etc. No custom-tools YAML block needed.
+
+**Testing checklist (so you know it works before telling Saswata):**
+
+1. `curl -X POST $BASE/mcp -H "X-Jarvis-Key: $KEY" -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0.0.1"}}}'` — should return a server-info response.
+2. `curl -X POST $BASE/mcp ... -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'` — should return the 10 tool names above.
+3. `curl -X POST $BASE/mcp ... -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_daily_brief","arguments":{"days":7}}}'` — should return the real brief.
+4. Hitting `/mcp` without the `X-Jarvis-Key` header → 401, same as the REST side.
+5. Existing REST tests still pass (`pytest`) — MCP is additive, REST stays untouched.
+
+**Scope guardrails — what NOT to do:**
+
+- Don't remove the REST endpoints. UI, tests, and existing integrations use them. MCP is additive.
+- Don't expose `POST /sync` without auth on MCP either — it's expensive.
+- Don't add new tools we haven't agreed on. The 10 tools above mirror the catalog in `context/saswata.md`. If you want to add one, ping Saswata first.
+- Don't change the response shapes. MCP returns the same Pydantic-shaped JSON that REST does — Hermes handles both the same way.
+
+**Priority:** between TODO 4 (materials — unblocks Amrita) and B/C (exam prep, grades). Materials is still higher priority because Amrita is blocked today; MCP conversion is a quality improvement, not a blocker.
+
 ### Non-goals — explicitly NOT asked
 
 - No supermemory writes from your service. Brain owns that.

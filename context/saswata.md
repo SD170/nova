@@ -407,10 +407,12 @@ That's the demo. One prompt, one reply, every lane shows up, memory visible ever
 5. **Shared spaces are a brain operation.** Sharing an item ("share this news with Priya") = brain creates a shared supermemory entry both users read. The share tool does not copy data between accounts; it authorizes a slice.
 6. **Classifier opinions ≠ user memory.** Abishek's Gemini says "this is an exam with confidence 0.82" — that lives in the item payload, not supermemory. Supermemory gets facts about the *student*, not facts about the *data*.
 
-### Communication style — LOCKED
+### Communication style — LOCKED (updated)
 
-- **HTTP, not MCP, for sub-agents.** Our services are FastAPI already; MCP adds no value for localhost-to-localhost. (MCP stays for Vapi MCP, supermemory MCP — where it's native.)
-- **Hermes tool registry maps semantic names → HTTP endpoints.** LLM picks tools by intent, Hermes dispatches over HTTP.
+- **MCP (streamable-HTTP) for sub-agents, when they ship it.** Native Hermes MCP client auto-discovers tools (`mcp_canvas_*`, etc.). No hand-rolled custom-tools block in the Shruti profile.
+- **HTTP fallback allowed during transition.** Abishek's service shipped REST first; MCP is TODO 6. Until MCP lands, Hermes talks to the REST endpoints via a custom-tools block.
+- Decision reversal from earlier draft: cleaner Hermes config + standard discovery wins over the "HTTP-only, no protocol overhead" instinct. Same latency either way.
+- **Hermes tool registry still maps semantic names → service tools.** LLM picks tools by intent, Hermes dispatches (via MCP or custom-HTTP as appropriate).
 - **One intent = one tool call.** The brain never composes a tool call out of browser primitives. If a common prompt needs two sub-agents, add a bundled endpoint on the sub-agent side (see `/brief` for Abishek).
 
 ### Canvas tool catalog — the brain's view of Abishek's service (9 tools)

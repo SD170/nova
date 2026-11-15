@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #000;
+  overflow: hidden;
+  color-scheme: dark;
+}
+
+/* ── hint (subtle; fades out after a few seconds of idle) ── */
+.hint {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  border-radius: 9999px;
+  font: 500 11px/1.2 Inter, system-ui, -apple-system, sans-serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(221 214 254 / 0.55);
+  background: rgb(5 3 10 / 0.35);
+  border: 1px solid rgb(167 139 250 / 0.15);
+  z-index: 20;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 1.2s ease;
+}
+.hint--hidden {
+  opacity: 0;
+}
+
+/* ── debug panel (press D) ─────────────────────────────────── */
+.dev-panel {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 6px;
+  z-index: 30;
+}
+.dev-panel button {
+  font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: #c4b5fd;
+  background: rgb(5 3 10 / 0.7);
+  border: 1px solid rgb(167 139 250 / 0.35);
+}
+.dev-panel button.on {
+  color: #05030a;
+  background: #39ff14;
+  border-color: #39ff14;
+}

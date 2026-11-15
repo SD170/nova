@@ -181,6 +181,53 @@ Supporting memory moments to layer in if time:
 
 Keep VoiceStudio in the pitch as the "and here's the local / private deployment story" slide. Judges + JFF investors like seeing a credible on-prem path even if the demo is cloud.
 
+## Repo folder layout (per-chunk, each person owns a folder)
+
+Each P0 chunk gets its own folder under `apps/`. Keeps teammates from stepping on each other's code, makes diffs clean, makes it obvious what's done.
+
+```
+student-jarvis/
+├── AGENTS.md
+├── README.md
+├── context/                     # shared team brain (md only, no code)
+│   ├── 01-project-brief.md
+│   ├── saswata.md
+│   ├── abishek.md
+│   ├── amrita.md
+│   ├── shruti.md
+│   └── gpt.pdf
+├── apps/
+│   ├── ui/                      # UI shell + card renderers + voice loop frontend
+│   │   ├── README.md            # owner, run cmd, env vars
+│   │   └── ...
+│   ├── voice/                   # Vapi integration + STT/TTS glue
+│   │   ├── README.md
+│   │   └── ...
+│   ├── orchestrator/            # /chat endpoint + tool router + approval gate + memory
+│   │   ├── README.md
+│   │   └── ...
+│   ├── browser-agent/           # browser-use / Playwright / TinyFish — scrape Canvas + external
+│   │   ├── README.md
+│   │   └── ...
+│   └── retrieval-quiz/          # embed + vector store + grounded quiz + grading
+│       ├── README.md
+│       └── ...
+├── packages/                    # shared across apps
+│   ├── schemas/                 # JSON schemas: /chat req/resp, tool call, cards, memory fact shape
+│   └── mocks/                   # canned responses for every tool so everyone can integrate day 0
+└── infra/                       # deploy configs (Vultr, Maritime, AWS) — added later
+```
+
+### Rules
+
+- Each `apps/<x>/` has a `README.md` with: owner, what it does, how to run locally, env vars, what endpoints it exposes
+- Shared types live in `packages/schemas/` — one source of truth, everyone imports
+- Mocks live in `packages/mocks/` and get wired up hour-1 so UI + orchestrator + voice can integrate before real tools exist
+- Context folder stays *markdown only* — no code, no configs — it is the team brain
+- Each app can use whatever language makes sense (UI in Next/React, orchestrator in Python/Node, browser-agent in Python because browser-use is Python) — they talk over HTTP
+
+### Hour-0 step (I'll do): scaffold the folders + stub READMEs so teammates pull → each person sees their folder already created with a starter README.
+
 ## My ideas / open questions
 
 - 

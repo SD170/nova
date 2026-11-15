@@ -162,7 +162,7 @@ def nova_config(shruti_id: str) -> dict:
             ),
         },
         "endCallFunctionEnabled": False,
-        "silenceTimeoutSeconds": 20,
+        "silenceTimeoutSeconds": 600,
         "maxDurationSeconds": 600,
         # Barge-in: cut off Nova the instant the user says even 1 word.
         # Endpointing: wait longer before firing Hermes if user clearly isn't
@@ -224,7 +224,7 @@ def shruti_config(nova_id: str) -> dict:
             ),
         },
         "endCallFunctionEnabled": False,
-        "silenceTimeoutSeconds": 20,
+        "silenceTimeoutSeconds": 600,
         "maxDurationSeconds": 600,
         # Barge-in: cut off Nova the instant the user says even 1 word.
         # Endpointing: wait longer before firing Hermes if user clearly isn't

@@ -79,6 +79,14 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
     setMuted(m: boolean) {
       try {
         vapi.setMuted(m)
+        // If Vapi dropped the call (e.g. silence timeout) and user hits
+        // SPACE to unmute, restart the call so PTT works again.
+        if (!m && !active) {
+          console.info('[vapi] unmute requested but call inactive — restarting')
+          vapi.start(assistantId).catch((e) =>
+            console.error('[vapi] auto-restart failed', e),
+          )
+        }
       } catch (e) {
         console.warn('[vapi] setMuted failed', e)
       }

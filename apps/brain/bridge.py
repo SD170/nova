@@ -617,6 +617,110 @@ async def ask_brain(request: Request):
 _REPLY_CAP = 240
 
 
+# ────── /mint_credential: Vapi tool → cred-agent fire-and-forget ──────
+#
+# Mint usually takes 6-15s (Canvas fetch + sign + Solana devnet tx + R2
+# upload + Metaplex NFT). Blocking the Vapi tool for that length is a bad
+# UX — the model-level turn gets starved. Same fire-and-forget shape as
+# /ask_brain: return a short machine ack immediately, dispatch in the
+# background, inject the result via say-control when done.
+
+CRED_AGENT_URL = os.environ.get("CRED_AGENT_URL") or "http://127.0.0.1:9010"
+
+
+def _post_json_sync(url: str, body: dict[str, Any],
+                    timeout_s: float) -> tuple[dict[str, Any], int]:
+    """Blocking JSON POST → (parsed_body_or_error_dict, http_status).
+    Use via asyncio.to_thread so the event loop stays free."""
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="POST",
+        headers={"Content-Type": "application/json", "User-Agent": "nova-bridge/0.2"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as r:
+            raw = r.read()
+            return (json.loads(raw) if raw else {}), r.status
+    except urllib.error.HTTPError as e:
+        raw = e.read() if e.fp else b""
+        try:
+            payload = json.loads(raw) if raw else {"error": str(e)}
+        except json.JSONDecodeError:
+            payload = {"error": raw.decode("utf-8", "replace")[:300]}
+        return payload, e.code
+
+async def _mint_and_inject(turn_id: str, call_id: str,
+                            mint_body: dict[str, Any]) -> None:
+    """Call cred-agent /mint_credential (long-running) and speak the result."""
+    t0 = time.time()
+    try:
+        # Run blocking urllib in a thread so we don't block the event loop.
+        d, status = await asyncio.to_thread(_post_json_sync,
+                                             f"{CRED_AGENT_URL}/mint_credential",
+                                             mint_body, 120)
+        if status >= 400:
+            log.error("[t-mint %s] cred-agent %s: %r", turn_id, status, d)
+            msg = "Hit a snag minting that — try again in a sec."
+        else:
+            nft = d.get("nft") or {}
+            if d.get("status") == "already_minted":
+                msg = "That one's already minted — your NFT is on devnet."
+            elif nft.get("mint"):
+                # Speakable: NFT tail (last 4 chars) is memorable for stage demo.
+                tail = nft["mint"][-4:]
+                msg = (f"Done — your credential is on Solana devnet, "
+                       f"NFT ends in {tail}. Verify link is in your dashboard.")
+            else:
+                msg = "Minted and signed — check your dashboard for the link."
+    except Exception as exc:  # noqa: BLE001
+        log.error("[t-mint %s] crashed: %s", turn_id, exc)
+        msg = "The mint service isn't reachable right now."
+    log.info("[t-mint %s] done took=%.3fs msg=%r", turn_id, time.time()-t0, msg[:80])
+    _vapi_inject_say(call_id, msg)
+
+
+@app.post("/mint_credential")
+async def mint_credential(request: Request):
+    """Vapi function-tool forwarder. Expects the tool to be called with any
+    subset of {item_key, browser_capture_path, nft_name}. Falls back to
+    sensible defaults so the simplest voice command — 'mint it' — works."""
+    turn_id = uuid.uuid4().hex[:6]
+    body = await request.json()
+    tool_calls = (body.get("message") or {}).get("toolCalls") or []
+    call_id = ((body.get("message") or {}).get("call") or {}).get("id")
+
+    results = []
+    for tc in tool_calls:
+        tc_id = tc.get("id") or tc.get("toolCallId") or f"tc-{turn_id}"
+        args = (tc.get("function") or {}).get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {}
+        mint_body = {
+            "item_key": (args.get("item_key") or f"voice-mint-{int(time.time())}").strip(),
+            "browser_capture_path": args.get("browser_capture_path") or None,
+            "nft_name": args.get("nft_name") or None,
+            "mint_nft": True,
+        }
+        # Prune None so cred-agent uses its own defaults
+        mint_body = {k: v for k, v in mint_body.items() if v is not None}
+        log.info("[t-mint %s] dispatching call_id=%s body=%r",
+                 turn_id, call_id, mint_body)
+        if call_id:
+            asyncio.create_task(_mint_and_inject(turn_id, call_id, mint_body))
+            results.append({"toolCallId": tc_id, "result": f"<ACK#mint-{turn_id}>"})
+        else:
+            # Curl probe: synchronous passthrough so the body is easy to see.
+            try:
+                d, _ = await asyncio.to_thread(_post_json_sync,
+                    f"{CRED_AGENT_URL}/mint_credential", mint_body, 120)
+                results.append({"toolCallId": tc_id, "result": d})
+            except Exception as e:  # noqa: BLE001
+                results.append({"toolCallId": tc_id, "result": {"error": str(e)[:200]}})
+
+    return JSONResponse({"results": results})
+
+
 # ────────── background task registry ──────────
 # Tracks async Hermes jobs per call so the router can ask 'check_task' instead
 # of re-delegating the same question.

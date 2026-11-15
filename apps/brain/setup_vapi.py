@@ -86,6 +86,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 CUSTOM_LLM_URL = f"{BRAIN_BASE}/v1/chat/completions"
 ASK_BRAIN_URL = f"{BRAIN_BASE}/ask_brain"
 CHECK_TASK_URL = f"{BRAIN_BASE}/check_task"
+MINT_CREDENTIAL_URL = f"{BRAIN_BASE}/mint_credential"
 
 # Router prompt lives in NOVA_ROUTER.md next to this file. Groq gets the slim
 # version; deep Canvas/Gmail guidance stays in SOUL.md (Hermes side).
@@ -166,6 +167,53 @@ def _check_task_tool() -> dict:
     }
 
 
+def _mint_credential_tool() -> dict:
+    """Mint a verifiable NFT credential of the student's Canvas record.
+
+    Fire-and-forget on the bridge side: returns an opaque ack, dispatches
+    the long-running cred-agent call in the background, and injects the
+    result back as a spoken message when the NFT lands on devnet + R2.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "mint_credential",
+            "description": (
+                "Mint a verifiable NFT credential of the student's current "
+                "academic record on Solana devnet. Use when the user says "
+                "'mint my credentials', 'put it on-chain', 'lock in my "
+                "grades', 'make an NFT of my transcript', 'certify my "
+                "work', or similar. The tool is slow (6-15s) but returns "
+                "instantly with an ack — the real NFT mint confirmation "
+                "arrives separately as a spoken message. Idempotent via "
+                "item_key: calling twice with the same key short-circuits."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_key": {
+                        "type": "string",
+                        "description": (
+                            "Dedupe tag. Omit for a timestamp-based key. "
+                            "Pass a stable string like 'fall-2026-transcript' "
+                            "to make repeated mints no-op."
+                        ),
+                    },
+                    "nft_name": {
+                        "type": "string",
+                        "description": "Display name on the NFT (<=32 chars).",
+                    },
+                },
+            },
+        },
+        "server": {"url": MINT_CREDENTIAL_URL, "timeoutSeconds": 15},
+        "messages": [
+            {"type": "request-failed",
+             "content": "The mint didn't go through — try again?"},
+        ],
+    }
+
+
 def nova_config(shruti_id: str) -> dict:
     """Patch body for Nova assistant (the main one).
 
@@ -182,7 +230,7 @@ def nova_config(shruti_id: str) -> dict:
                 "role": "system",
                 "content": NOVA_ROUTER_PROMPT,
             }],
-            "tools": [_ask_brain_tool(), _check_task_tool()] + _transfer_tool(
+            "tools": [_ask_brain_tool(), _check_task_tool(), _mint_credential_tool()] + _transfer_tool(
                 shruti_id, "Shruti", "Switching you over to Shruti.",
                 "Hand off to Shruti when the user asks for a student perspective "
                 "or says 'talk to me as Shruti'.",
@@ -237,7 +285,7 @@ def shruti_config(nova_id: str) -> dict:
                     NOVA_ROUTER_PROMPT.replace("You are **Nova**", "You are **Shruti**, a fellow student (warmer, more casual than Nova)")
                 ),
             }],
-            "tools": [_ask_brain_tool(), _check_task_tool()] + _transfer_tool(
+            "tools": [_ask_brain_tool(), _check_task_tool(), _mint_credential_tool()] + _transfer_tool(
                 nova_id, "Nova", "Handing you back to Nova.",
                 "Hand off to Nova when the user wants formal mode or says 'back to Nova'.",
             ),

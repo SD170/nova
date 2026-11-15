@@ -4,6 +4,7 @@ import { installTestKeys } from './avatar/testKeys'
 import { bindVapi, createVoiceHooks } from './avatar/voiceBridge'
 import { toggleDemo } from './tasks/demo'
 import './tasks/tasks' // registers window.jarvisTasks
+import { initTaskPoller } from './tasks/poller'
 import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { TaskPanel } from './ui/TaskPanel'
 import { BootTitle } from './ui/BootTitle'
@@ -114,6 +115,9 @@ export default function App() {
       handle.setMuted(true)
       handle.start().catch((e) => console.error('[vapi] start error', e))
     }
+
+    // Poll the bridge for background Hermes task completions. No-op when idle.
+    initTaskPoller()
 
     window.jarvisVoice = {
       bindVapi: (vapi) => bindVapi(vapi, api),

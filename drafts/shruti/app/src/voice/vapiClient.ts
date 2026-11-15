@@ -52,6 +52,11 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
     userStopped = false
     console.info('[vapi] call started')
   })
+  // Vapi messages carry call.id; stash the latest so the task poller can target it.
+  vapi.on('message', (m: any) => {
+    const cid = m?.call?.id ?? m?.callId
+    if (typeof cid === 'string' && cid) (window as any).__NOVA_CALL_ID__ = cid
+  })
   vapi.on('call-end', () => {
     active = false
     console.info('[vapi] call ended')

@@ -637,18 +637,22 @@ def _register_task(call_id: str, question: str) -> dict:
         "status": "running",       # running | done | error
         "started_at": time.time(),
         "finished_at": None,
-        "result": None,
+        "result": None,       # spoken (TTS-capped) text, short
+        "result_full": None,  # full Hermes reply, uncapped — shown in the card
     }
     _tasks_by_call.setdefault(call_id, []).append(entry)
     return entry
 
 
-def _update_task(call_id: str, tid: str, *, status: str, result: str) -> None:
+def _update_task(call_id: str, tid: str,
+                 *, status: str, result: str, result_full: str | None = None) -> None:
     for t in _tasks_by_call.get(call_id, []):
         if t["id"] == tid:
             t["status"] = status
             t["finished_at"] = time.time()
             t["result"] = result
+            if result_full is not None:
+                t["result_full"] = result_full
             return
 
 
@@ -715,8 +719,9 @@ async def _run_brain_and_inject(turn_id: str, call_id: str, task_id: str,
         status = "error"
     if not reply:
         reply = "Couldn't find anything on that."
+    reply_full = reply
     reply = _cap_reply(reply)
-    _update_task(call_id, task_id, status=status, result=reply)
+    _update_task(call_id, task_id, status=status, result=reply, result_full=reply_full)
     log.info("[t-ask_brain %s] ASYNC done len=%d took=%.3fs q=%r",
              turn_id, len(reply), time.time() - t0, question[:80])
     ok = _vapi_inject_say(call_id, reply)
@@ -797,6 +802,30 @@ def _vapi_inject_say(call_id: str, content: str) -> bool:
 
 
 # ────────── /check_task: status lookup tool for the router ──────────
+
+@app.get("/tasks")
+async def list_tasks(request: Request):
+    """CORS-friendly GET for the Electron UI to poll task state.
+
+    Usage: GET /tasks?call_id=<id>
+    Returns: {"tasks": [{id, question, status, result, started_at, finished_at}, ...]}
+    Omitting call_id returns the whole registry (dev convenience).
+    """
+    cid = request.query_params.get("call_id") or ""
+    if cid:
+        tasks = list(_tasks_by_call.get(cid, []))
+    else:
+        # Flatten everything (dev)
+        tasks = [t for lst in _tasks_by_call.values() for t in lst]
+    # Only ship fields the UI needs; drop internal 'spoken' flag.
+    public = [{k: t.get(k) for k in
+               ("id", "question", "status", "result", "result_full",
+                "started_at", "finished_at")}
+              for t in tasks]
+    resp = JSONResponse({"tasks": public})
+    resp.headers["access-control-allow-origin"] = "*"
+    return resp
+
 
 @app.post("/check_task")
 async def check_task(request: Request):

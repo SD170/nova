@@ -106,7 +106,9 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
     return 'other'
   }
 
-  const titleOf = (q: string) => (q.length > 48 ? q.slice(0, 48).trimEnd() + '…' : q)
+  // Show the full question in the task card. CSS truncates visually if needed,
+  // but the raw text stays in the DOM for expanded view + screen readers.
+  const titleOf = (q: string) => q
 
   const handlers: [string, (...a: any[]) => void][] = [
     ['speech-start', () => hooks.assistantSpeechStart()], // Vapi: assistant started talking
@@ -170,7 +172,7 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
                 )
                 if (hit) taskId = hit.id
               }
-              if (taskId) completeTask(taskId, { summary: doneMatch[1].slice(0, 220) })
+              if (taskId) completeTask(taskId, { summary: doneMatch[1] })
               continue
             }
 
@@ -185,7 +187,7 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
 
             // Hard failure
             if (/snag|error|couldn't reach|failed/i.test(text) && taskId) {
-              failTask(taskId, text.slice(0, 220))
+              failTask(taskId, text)
             }
           }
         }

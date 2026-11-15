@@ -882,14 +882,14 @@ async def _run_brain_and_inject(turn_id: str, call_id: str, task_id: str,
     _update_task(call_id, task_id, status=status, result=reply, result_full=reply_full)
     log.info("[t-ask_brain %s] ASYNC done len=%d took=%.3fs q=%r",
              turn_id, len(reply), time.time() - t0, question[:80])
-    # Give the user a breathing window before Nova barges in. Many Canvas
-    # questions take 10-15s for Hermes, and the user often keeps talking
-    # ("…and also, by the way…"). Firing `say` instantly cuts them off
-    # mid-sentence. 1.8s is empirically the sweet spot — long enough to
-    # finish an average trailing clause, short enough that the result still
-    # feels responsive. If user is still speaking at that point we have no
-    # reliable server-side signal, so this is best-effort, not perfect.
-    await asyncio.sleep(1.8)
+    # Wait for the user to finish talking BEFORE Nova speaks.
+    # UI pings /user_speech on every partial/final transcript, so we can tell
+    # if the user is mid-sentence. If they've been quiet ≥600ms, inject now;
+    # otherwise cap the hold at 2s so we don't make them wait forever either.
+    # Zero-wait fallback for clients that don't ping (safe: old behaviour).
+    waited = await _wait_for_user_silence(call_id, silence_s=0.6, cap_s=2.0)
+    log.info("[t-ask_brain %s] waited %.2fs for user silence before inject",
+             turn_id, waited)
     ok = _vapi_inject_say(call_id, reply)
     log.info("[t-ask_brain %s] inject call_id=%s ok=%s", turn_id, call_id, ok)
 
@@ -991,6 +991,59 @@ async def list_tasks(request: Request):
     resp = JSONResponse({"tasks": public})
     resp.headers["access-control-allow-origin"] = "*"
     return resp
+
+
+# ──── Client-reported user-speech activity. Lets the ask_brain inject
+# ──── wait for silence instead of blind-sleeping 1.8s. UI pings this on
+# ──── every speech-update / transcript event; we store the newest ts
+# ──── per call_id. _wait_for_user_silence() below polls it.
+_last_user_speech_at: dict[str, float] = {}
+
+
+@app.post("/user_speech")
+async def user_speech(request: Request):
+    """UI pings this on user speech activity: {call_id, active}. Only the
+    timestamp matters; `active` is advisory for future telemetry."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad json"}, status_code=400)
+    cid = (body.get("call_id") or "").strip()
+    if cid:
+        _last_user_speech_at[cid] = time.time()
+    resp = JSONResponse({"ok": True})
+    resp.headers["access-control-allow-origin"] = "*"
+    return resp
+
+
+@app.options("/user_speech")
+async def user_speech_options() -> JSONResponse:
+    resp = JSONResponse({})
+    resp.headers["access-control-allow-origin"] = "*"
+    resp.headers["access-control-allow-methods"] = "POST, OPTIONS"
+    resp.headers["access-control-allow-headers"] = "content-type"
+    return resp
+
+
+async def _wait_for_user_silence(call_id: str,
+                                  silence_s: float = 0.6,
+                                  cap_s: float = 2.0) -> float:
+    """Sleep until user has been silent for `silence_s` (short) OR we've
+    waited `cap_s` total. Returns elapsed seconds for logging. If the UI
+    never pinged (no entry for call_id), returns 0 immediately — we don't
+    hold up the inject on clients that don't support this signal."""
+    if call_id not in _last_user_speech_at:
+        return 0.0
+    t0 = time.time()
+    while True:
+        now = time.time()
+        last = _last_user_speech_at.get(call_id, 0.0)
+        since_speech = now - last
+        elapsed = now - t0
+        if since_speech >= silence_s or elapsed >= cap_s:
+            return elapsed
+        await asyncio.sleep(max(0.05,
+            min(0.1, silence_s - since_speech, cap_s - elapsed)))
 
 
 @app.post("/check_task")

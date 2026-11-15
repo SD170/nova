@@ -34,6 +34,29 @@ import {
 } from '../tasks/tasks'
 import { pingTaskPoller } from '../tasks/poller'
 
+// Bridge URL for /user_speech pings. Same base Vite env as the poller.
+const BRIDGE_URL =
+  (import.meta.env.VITE_BRIDGE_URL as string | undefined) ??
+  'http://127.0.0.1:8000'
+
+// Light fire-and-forget beacon. Server uses it to decide when it's safe to
+// inject Nova's reply (waits for the user to be silent ≥600ms).
+function pingUserSpeech(active: boolean): void {
+  const cid = (window as Window & { __NOVA_CALL_ID__?: string }).__NOVA_CALL_ID__
+  if (!cid) return
+  // Use fetch keepalive so pings during unload still land.
+  try {
+    void fetch(`${BRIDGE_URL}/user_speech`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ call_id: cid, active }),
+      keepalive: true,
+    })
+  } catch {
+    // network blip — next event will try again
+  }
+}
+
 export function createVoiceHooks(avatar: Pick<Avatar3DHandle, 'setState'>) {
   let userTalking = false
   let assistantTalking = false
@@ -137,14 +160,16 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
         const micOpen = vapi.isMuted ? vapi.isMuted() === false : true
         if (m?.type === 'speech-update' && m.role === 'user') {
           if (!micOpen) return
-          if (m.status === 'started') hooks.userSpeechStart()
-          else if (m.status === 'stopped') hooks.userSpeechEnd()
+          if (m.status === 'started') { hooks.userSpeechStart(); pingUserSpeech(true) }
+          else if (m.status === 'stopped') { hooks.userSpeechEnd(); pingUserSpeech(false) }
         } else if (m?.type === 'transcript' && m.role === 'user' && m.transcriptType === 'partial') {
           if (!micOpen) return
           hooks.userSpeechStart()
+          pingUserSpeech(true)
         } else if (m?.type === 'transcript' && m.role === 'user' && m.transcriptType === 'final') {
           if (!micOpen) return
           hooks.userSpeechEnd()
+          pingUserSpeech(false)
         } else if (m?.type === 'tool-calls' || m?.type === 'function-call') {
           hooks.toolCallStart()
           // Vapi emits an array of tool-calls on 'tool-calls', or one on 'function-call'.

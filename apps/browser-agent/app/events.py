@@ -26,7 +26,14 @@ import urllib.error
 import urllib.request
 
 
-_BRIDGE = os.environ.get("BRIDGE_URL") or "http://127.0.0.1:8000"
+# Where to POST events. Fallback chain:
+#   1. explicit BRIDGE_URL env (teammate-set override)
+#   2. PUBLIC_BRAIN_BASE from shared.env (cross-machine — every teammate's
+#      service pushes to Saswata's bridge via its public tunnel)
+#   3. localhost (only right when bridge runs on same box)
+_BRIDGE = (os.environ.get("BRIDGE_URL")
+           or os.environ.get("PUBLIC_BRAIN_BASE")
+           or "http://127.0.0.1:8000")
 
 
 def _post(payload: dict[str, object]) -> None:

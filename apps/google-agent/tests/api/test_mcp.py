@@ -39,7 +39,7 @@ def test_inbox_matches_rest(client):
 
 def test_read_gives_a_gist_not_the_body(client):
     _, msg = call(client, "gmail_get_message", {"message_id": "m-prof"})
-    assert msg["speak"].startswith("From Prof. Ramirez:") and "body_text" not in msg
+    assert msg["speak"].startswith("Demo data. From Prof. Ramirez:") and "body_text" not in msg
     assert len(msg["speak"].split()) <= 40
     _, full = call(client, "gmail_get_message", {"message_id": "m-prof", "full": True})
     assert "AVL" in full["body_text"] and full["truncated"] is False
@@ -48,7 +48,7 @@ def test_read_gives_a_gist_not_the_body(client):
 def test_draft_is_saved_never_sent(client):
     _, d = call(client, "gmail_create_draft", {"body": "Yes, I'll be there.",
                                               "reply_to_message_id": "m-prof"})
-    assert d["draft_id"] and d["speak"] == "Draft saved in Gmail. Nothing was sent."
+    assert d["draft_id"] and d["speak"] == "Demo data. Draft saved in Gmail. Nothing was sent."
 
 
 def test_sync_preview_then_apply(client, fake_canvas):
@@ -111,7 +111,7 @@ def test_every_tool_has_a_short_speak_line(client, fake_canvas):
 def test_inbox_answer_is_one_short_line_and_small(client):
     res, inbox = call(client, "gmail_inbox_summary", {"hours": 72})
     assert len(res["content"][0]["text"]) < 3500   # was ~14k (20 full emails) in real use
-    assert inbox["speak"].startswith("3 important out of 6. Top: Dana Whitfield,")
+    assert inbox["speak"].startswith("Demo data. 3 important out of 6. Top: Dana Whitfield,")
     assert "Top:" in inbox["speak"] and "need" in inbox["speak"]
     first = inbox["emails"][0]
     assert set(first) == {"id", "from", "subject", "snippet", "category", "important",
@@ -121,18 +121,18 @@ def test_inbox_answer_is_one_short_line_and_small(client):
 
 def test_sync_preview_speaks_a_question_and_apply_speaks_done(client, fake_canvas):
     _, preview = call(client, "calendar_sync_canvas", {})
-    assert preview["speak"].startswith("I'd add 3 on your Nova calendar.")
+    assert preview["speak"].startswith("Demo data. I'd add 3 on your Nova calendar.")
     assert preview["speak"].endswith("Want me to do it?")
     assert preview["changes"][0]["title"].startswith("CSE 540 Homework 4")
     _, done = call(client, "calendar_sync_canvas", {"apply": True})
-    assert done["speak"] == "Done. Added 3 on your Nova calendar."
+    assert done["speak"] == "Demo data. Done. Added 3 on your Nova calendar."
     _, again = call(client, "calendar_sync_canvas", {"apply": True})
-    assert again["speak"] == "Your Nova calendar is already up to date."
+    assert again["speak"] == "Demo data. Your Nova calendar is already up to date."
 
 
 def test_free_time_is_spoken_in_plain_words(client):
     _, fb = call(client, "calendar_free_busy", {"days_ahead": 2})
-    assert fb["speak"].startswith("You're free ") and " to " in fb["speak"]
+    assert fb["speak"].startswith("Demo data. You're free ") and " to " in fb["speak"]
 
 
 # ---------- news + ASU events (Amrita's service, proxied) ----------

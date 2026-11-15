@@ -6,6 +6,7 @@ one or two short sentences the brain can say as is. Details stay behind explicit
 REST endpoints are unchanged (full data for the UI); only MCP uses these helpers.
 """
 
+import functools
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -223,3 +224,15 @@ def speak_sync(counts: dict, changes: list, applied: bool, failed_note: str = ""
     lead = (f" First: {short_event_title(first.title)}, "
             f"{when_label(first.start, now)}." if first and first.start else "")
     return f"I'd {plan} on your Nova calendar.{lead} Want me to do it?"
+
+
+def demo_label(fn):
+    """Wrap an async MCP tool: if its result says data_source == "demo", Nova says so out
+    loud ("Demo data. ..."), so mock data can never pass for the student's real data."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        out = await fn(*args, **kwargs)
+        if isinstance(out, dict) and out.get("data_source") == "demo" and out.get("speak"):
+            out["speak"] = "Demo data. " + out["speak"]
+        return out
+    return wrapper

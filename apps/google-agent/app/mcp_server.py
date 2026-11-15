@@ -23,6 +23,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from .service import WorkspaceService
 from .voice import (
     cut,
+    demo_label,
     compact_email,
     compact_event,
     short_event_title,
@@ -67,6 +68,14 @@ def build_mcp(get_svc: Callable[[], WorkspaceService]) -> FastMCP:
         # X-Canvas-Key instead (see KeyGuard).
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
+
+    _register = mcp.tool
+
+    def _tool(*args, **kwargs):  # every tool: demo data is labeled out loud (voice.demo_label)
+        decorate = _register(*args, **kwargs)
+        return lambda fn: decorate(demo_label(fn))
+
+    mcp.tool = _tool  # type: ignore[method-assign]
 
     # ---------------- Gmail ----------------
 
@@ -159,7 +168,8 @@ def build_mcp(get_svc: Callable[[], WorkspaceService]) -> FastMCP:
         return {"speak": f"Added {cut(ev.title, 50)} to your Nova calendar, "
                          f"{when_label(ev.start)}.",
                 "id": ev.id, "title": ev.title, "start": ev.start.isoformat(),
-                "end": ev.end.isoformat(), "calendar": ev.calendar, "html_link": ev.html_link}
+                "end": ev.end.isoformat(), "calendar": ev.calendar, "html_link": ev.html_link,
+                "data_source": get_svc().backend.data_source.value}
 
     @mcp.tool(description=(
         "Put the student's Canvas deadlines (assignments, quizzes, exams) on the Nova calendar. "
@@ -170,7 +180,7 @@ def build_mcp(get_svc: Callable[[], WorkspaceService]) -> FastMCP:
         r = await get_svc().sync_canvas(apply)
         failed = " Some changes failed; try again." if "failed" in r.note else ""
         return {"speak": speak_sync(r.counts, r.changes, r.applied, failed),
-                "applied": r.applied, "counts": r.counts,
+                "applied": r.applied, "counts": r.counts, "data_source": r.data_source.value,
                 "changes": [{"action": c.action, "title": short_event_title(c.title),
                              "when": when_label(c.start) if c.start else ""}
                             for c in r.changes[:SHOW_CHANGES]]}

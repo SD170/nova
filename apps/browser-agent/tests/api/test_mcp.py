@@ -94,12 +94,12 @@ def test_brief_is_compact_and_uses_short_names(client):
     assert first["course"] == "CSE 310" and first["title"] == "Homework 3"
     assert "what_to_do" not in first and "notes" not in first
     _, courses = call(client, "list_courses")
-    assert courses["speak"] == "You're taking CSE 310 and MAT 343."
+    assert courses["speak"] == "Demo data. You're taking CSE 310 and MAT 343."
 
 
 def test_item_details_keep_steps_but_say_one_line(client):
     _, d = call(client, "get_item_details", {"item_id": "cse310-a3"})
-    assert d["steps"] and d["speak"].startswith("Homework 3 for CSE 310")
+    assert d["steps"] and d["speak"].startswith("Demo data. Homework 3 for CSE 310")
     assert d["full_title"] == "Homework 3: AVL Trees"
 
 

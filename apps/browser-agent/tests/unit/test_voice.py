@@ -106,3 +106,18 @@ def test_courses_and_join():
 
     assert speak_courses([C("CSE 579"), C("BMI/BME/CEN/CSE507-494"), C("CSE 540")]) == \
         "You're taking CSE 579, CSE 507 and CSE 540."
+
+
+# ---------- demo label ----------
+
+def test_demo_data_is_labeled_out_loud_and_live_data_is_not():
+    import asyncio
+
+    from app.voice import demo_label
+
+    @demo_label
+    async def tool(ds):
+        return {"speak": "5 things due.", "data_source": ds}
+
+    assert asyncio.run(tool("demo"))["speak"] == "Demo data. 5 things due."
+    assert asyncio.run(tool("live"))["speak"] == "5 things due."

@@ -514,6 +514,73 @@ async def vapi_event(request: Request):
     return {"ok": True}
 
 
+# ────────── /ask_brain: thin-wrapper delegation endpoint ──────────
+#
+# Vapi's router model (Groq Llama 3.1 8b) calls this as a `function` tool
+# whenever it needs a fact. Shape is Vapi's standard tool-call POST:
+#
+#   { "message": { "toolCalls": [ { "id": "...",
+#         "function": { "name": "ask_brain",
+#                       "arguments": { "question": "..." } } } ] } }
+#
+# We extract the question, run it through Hermes (full SOUL.md + MCPs), and
+# return Vapi's tool-call result envelope with the brain's reply as `result`.
+# Groq then speaks the reply as-is.
+#
+# Why not go through /chat/completions? That's OpenAI-shape; Vapi tool calls
+# are a separate POST shape. Keeping a dedicated endpoint makes the contract
+# explicit and lets us skip persona prefix, markdown stripping tuning, etc.
+
+@app.post("/ask_brain")
+async def ask_brain(request: Request):
+    t_ingress = time.time()
+    turn_id = uuid.uuid4().hex[:6]
+    body = await request.json()
+
+    # Vapi wraps function tool calls in message.toolCalls
+    tool_calls = (body.get("message") or {}).get("toolCalls") or []
+    if not tool_calls:
+        # Fall back: accept a plain {question: "..."} for curl testing
+        q = (body.get("question") or "").strip()
+        if not q:
+            raise HTTPException(status_code=400, detail="missing toolCalls or question")
+        tool_calls = [{"id": f"tc-{turn_id}", "function": {"arguments": {"question": q}}}]
+
+    results = []
+    for tc in tool_calls:
+        tc_id = tc.get("id") or tc.get("toolCallId") or f"tc-{turn_id}"
+        fn = tc.get("function") or {}
+        args = fn.get("arguments") or {}
+        # Vapi can send arguments as a dict or a JSON string depending on version
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {"question": args}
+        question = (args.get("question") or "").strip()
+        if not question:
+            results.append({"toolCallId": tc_id,
+                            "result": "I didn't get a question — try again?"})
+            continue
+
+        log.info("[t-ask_brain %s] question=%r", turn_id, question[:120])
+        # Nova persona is already the default in SOUL.md; prepend tag for consistency.
+        prompted = f"[persona: nova]\n{question}"
+        try:
+            reply, _ = await _run_hermes(prompted, resume_session=None)
+        except HTTPException as exc:
+            log.error("[t-ask_brain %s] hermes error: %s", turn_id, exc.detail)
+            reply = "I hit an error reaching that — try again in a sec."
+        if not reply:
+            reply = "No result from that lookup."
+        log.info("[t-ask_brain %s] reply_len=%d took=%.3fs",
+                 turn_id, len(reply), time.time() - t_ingress)
+        results.append({"toolCallId": tc_id, "result": reply})
+
+    return JSONResponse({"results": results})
+
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", "8000"))

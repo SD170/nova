@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import sys
 from pathlib import Path
 
@@ -83,10 +84,51 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 # ─── assistant configs ───────────────────────────────────────────────────
 
 CUSTOM_LLM_URL = f"{BRAIN_BASE}/v1/chat/completions"
+ASK_BRAIN_URL = f"{BRAIN_BASE}/ask_brain"
+
+# Router prompt lives in NOVA_ROUTER.md next to this file. Groq gets the slim
+# version; deep Canvas/Gmail guidance stays in SOUL.md (Hermes side).
+_HERE = pathlib.Path(__file__).parent
+NOVA_ROUTER_PROMPT = (_HERE / "NOVA_ROUTER.md").read_text()
+
+
+def _ask_brain_tool() -> dict:
+    """Vapi function tool that delegates fact-lookups to our Hermes brain."""
+    return {
+        "type": "function",
+        "function": {
+            "name": "ask_brain",
+            "description": (
+                "Delegate to Nova's brain for Canvas, Gmail, Calendar, memory, "
+                "research, documents, or anything factual about the user's life. "
+                "Returns a short spoken reply. Call this BEFORE claiming any fact."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "The concise natural-language question to send to the brain.",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
+        "server": {"url": ASK_BRAIN_URL, "timeoutSeconds": 30},
+        "messages": [
+            {"type": "request-start", "content": "", "blocking": False},
+            # Brain's own reply is spoken via tool result; no need for request-complete filler
+        ],
+    }
 
 
 def nova_config(shruti_id: str) -> dict:
-    """Patch body for Nova assistant (the main one)."""
+    """Patch body for Nova assistant (the main one).
+
+    Architecture: Groq Llama 3.1 8b is the VOICE-FACING ROUTER. Small talk is
+    handled directly for sub-second responses. Any factual question delegates
+    to Hermes via the `ask_brain` function tool (ASK_BRAIN_URL).
+    """
     return {
         "name": "Nova",
         "firstMessage": "Hey, Nova here. What do you need?",
@@ -95,21 +137,18 @@ def nova_config(shruti_id: str) -> dict:
             "voiceId": "Elliot",         # calm, confident, neutral
         },
         "model": {
-            "provider": "custom-llm",
-            "url": BRAIN_BASE,           # Vapi appends /chat/completions
-            "model": "nova",
+            "provider": "openai",
+            "model": "gpt-4o-mini",             # Vapi-native, sub-second router
             "temperature": 0.4,
             "messages": [{
                 "role": "system",
-                "content": (
-                    "You are Nova, the user's main AI assistant on a voice call. "
-                    "Direct, warm, confident. Keep replies short and conversational — one or two sentences unless asked. "
-                    "The user's note shows up as the user turn; respond as Nova."
-                ),
+                "content": NOVA_ROUTER_PROMPT,
             }],
-            "tools": _transfer_tool(shruti_id, "Shruti", "Switching you over to Shruti.",
-                                    "Hand off to Shruti when the user asks for a student perspective "
-                                    "or says 'talk to me as Shruti'."),
+            "tools": [_ask_brain_tool()] + _transfer_tool(
+                shruti_id, "Shruti", "Switching you over to Shruti.",
+                "Hand off to Shruti when the user asks for a student perspective "
+                "or says 'talk to me as Shruti'.",
+            ),
         },
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
@@ -148,21 +187,19 @@ def shruti_config(nova_id: str) -> dict:
             "speed": 0.95,
         },
         "model": {
-            "provider": "custom-llm",
-            "url": BRAIN_BASE,
-            "model": "shruti",
+            "provider": "openai",
+            "model": "gpt-4o-mini",
             "temperature": 0.6,
             "messages": [{
                 "role": "system",
                 "content": (
-                    "You are Shruti, a fellow student. Warmer and more casual than Nova. "
-                    "Use 'we' where it fits ('we've got that exam Monday'). "
-                    "Keep it short — one or two sentences unless asked. "
-                    "The user turn is the student talking; respond as Shruti."
+                    NOVA_ROUTER_PROMPT.replace("You are **Nova**", "You are **Shruti**, a fellow student (warmer, more casual than Nova)")
                 ),
             }],
-            "tools": _transfer_tool(nova_id, "Nova", "Handing you back to Nova.",
-                                    "Hand off to Nova when the user wants formal mode or says 'back to Nova'."),
+            "tools": [_ask_brain_tool()] + _transfer_tool(
+                nova_id, "Nova", "Handing you back to Nova.",
+                "Hand off to Nova when the user wants formal mode or says 'back to Nova'.",
+            ),
         },
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,

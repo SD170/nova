@@ -45,14 +45,29 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
   const unbind = bindVapi(vapi as unknown as Parameters<typeof bindVapi>[0], avatar)
 
   let active = false
+  let userStopped = false   // true after explicit stop(); blocks auto-restart
 
   vapi.on('call-start', () => {
     active = true
+    userStopped = false
     console.info('[vapi] call started')
   })
   vapi.on('call-end', () => {
     active = false
     console.info('[vapi] call ended')
+    // Auto-reconnect: if the call ended but the user didn't ask to stop,
+    // bring it back up so the mic stays live. Small delay to avoid thrashing
+    // if Vapi is in a bad state.
+    if (!userStopped) {
+      setTimeout(() => {
+        if (!active && !userStopped) {
+          console.info('[vapi] auto-reconnect after call-end')
+          vapi.start(assistantId).catch((e) =>
+            console.error('[vapi] auto-reconnect failed', e),
+          )
+        }
+      }, 800)
+    }
   })
   vapi.on('error', (e: unknown) => {
     console.error('[vapi] error', e)
@@ -62,6 +77,7 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
     vapi,
     async start() {
       if (active) return
+      userStopped = false
       try {
         await vapi.start(assistantId)
       } catch (e) {
@@ -69,6 +85,7 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
       }
     },
     stop() {
+      userStopped = true
       try {
         vapi.stop()
       } catch {
@@ -83,6 +100,7 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
         // SPACE to unmute, restart the call so PTT works again.
         if (!m && !active) {
           console.info('[vapi] unmute requested but call inactive — restarting')
+          userStopped = false
           vapi.start(assistantId).catch((e) =>
             console.error('[vapi] auto-restart failed', e),
           )

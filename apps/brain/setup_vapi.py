@@ -116,16 +116,10 @@ def _ask_brain_tool() -> dict:
         },
         "server": {"url": ASK_BRAIN_URL, "timeoutSeconds": 30},
         "messages": [
-            # Fires IMMEDIATELY when Nova decides to delegate — hides the ~2-8s Hermes wait.
-            # blocking=false so it layers under the real reply when it arrives.
-            {"type": "request-start",
-             "content": "Give me a moment.",
-             "blocking": False},
-            # Fires if the brain takes longer than request-start-delayed-millis (default 1s).
-            # Rotating phrases via multiple entries isn't supported; Vapi picks one.
-            {"type": "request-response-delayed",
-             "content": "Almost there.",
-             "timingMilliseconds": 7000},
+            # Model speaks its own bridge line ("Meanwhile I'm checking...") as
+            # instructed by NOVA_ROUTER.md, so we skip request-start / delayed
+            # fillers to avoid "Give me a moment. ... Meanwhile I'm checking..."
+            # stacking. Only keep a brief fallback on hard tool failure.
             # Fires if the call to /ask_brain hard-fails.
             {"type": "request-failed",
              "content": "Hit a snag reaching that — try again?"},

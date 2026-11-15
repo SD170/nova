@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await backend.close()
 
     def require_key(key: str | None = Security(API_KEY_HEADER)) -> None:
-        expected = settings.browser_agent_api_key
+        expected = settings.canvas_api_key
         if expected and not (key and hmac.compare_digest(key, expected)):
             raise HTTPException(status_code=401, detail="Missing or wrong X-Canvas-Key header")
 
@@ -96,7 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     mcp = build_mcp(lambda: app.state.service)
     mcp.streamable_http_app()  # creates mcp.session_manager
     app.router.routes.append(Route(
-        "/mcp", KeyGuard(StreamableHTTPASGIApp(mcp.session_manager), settings.browser_agent_api_key),
+        "/mcp", KeyGuard(StreamableHTTPASGIApp(mcp.session_manager), settings.canvas_api_key),
         methods=["GET", "POST", "DELETE"], include_in_schema=False))
 
     def svc(request: Request) -> BrowserAgentService:

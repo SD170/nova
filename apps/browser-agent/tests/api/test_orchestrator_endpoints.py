@@ -61,7 +61,7 @@ def test_user_done_unknown_item(client):
 
 
 def test_api_key_required_when_set(make_client):
-    c = make_client(browser_agent_api_key="s3cret")
+    c = make_client(canvas_api_key="s3cret")
     assert c.get("/health").status_code == 200  # health stays open
     assert c.get("/docs").status_code == 200  # docs stay open for judges
     assert c.get("/brief").status_code == 401

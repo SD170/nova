@@ -130,7 +130,7 @@ class KeyGuard:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http" and self.expected:
             headers = dict(scope.get("headers") or [])
-            key = headers.get(b"x-jarvis-key", b"").decode("latin-1")
+            key = headers.get(b"x-canvas-key", b"").decode("latin-1")
             if not hmac.compare_digest(key, self.expected):
                 body = json.dumps({"detail": "Missing or wrong X-Canvas-Key header"}).encode()
                 await send({"type": "http.response.start", "status": 401,

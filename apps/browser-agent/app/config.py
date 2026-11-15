@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     browser_backend: Literal["mock", "tinyfish"] = "mock"
 
     # Shared secret: if set, clients must send header X-Canvas-Key (needed once public)
-    browser_agent_api_key: str = ""
+    canvas_api_key: str = ""
 
     cache_ttl_minutes: int = 30
     data_dir: Path = APP_ROOT / "data"

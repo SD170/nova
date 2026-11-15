@@ -170,6 +170,17 @@ Supporting memory moments to layer in if time:
 - **Fix-it-once rule** — first correction ("in this course we use Kleinberg, not Cormen") sticks forever.
 - **Teammate hand-off (Abishek's idea #2)** — "Fork my Jarvis context for CSE 310 to Priya." Her Jarvis gets the course structure + accumulated class understanding, not your personal weak-topic map. Clearly different from sharing notes.
 
+## Voice stack decision
+
+**For the demo: Vapi.** Sub-500ms end-to-end, handles turn-taking + barge-in + pauses out of the box, 30 min to wire up. Our `/chat` endpoint stays identical — Vapi just wraps around it. Fallback if Vapi's free tier bites: OpenAI Whisper (STT) + OpenAI TTS pipeline, ~15 min glue.
+
+**For a privacy-first / secure environment (post-hackathon or if a track asks for local-only):** VoiceStudio (github.com/debpalash/VoiceStudio). Fully local, open-source ElevenLabs alternative — voice cloning, TTS, STT, 646 languages, runs on-device. Great fit when student data cannot touch cloud voice APIs (FERPA-sensitive deployments, dorm wifi off, international-student PII concerns). Not picked for the live demo because:
+- Latency on a laptop under demo load (orchestrator + UI + browser-use all running) is 1-3s per turn, voice demos die at >1s gaps
+- AGPL-3.0 is viral — licensing concern if we ever host it commercially
+- Needs model download + HTTP wrapping (~4-8h of setup we don't have)
+
+Keep VoiceStudio in the pitch as the "and here's the local / private deployment story" slide. Judges + JFF investors like seeing a credible on-prem path even if the demo is cloud.
+
 ## My ideas / open questions
 
 - 

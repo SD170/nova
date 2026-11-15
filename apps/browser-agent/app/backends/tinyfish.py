@@ -189,7 +189,9 @@ class TinyFishBackend(BrowserBackend):
         resp = await self._ctx.request.get(self.s.canvas_base_url + path,
                                            headers={"Accept": "application/json"})
         body = await resp.text()
-        if resp.status in (401, 403) or "/login" in resp.url:
+        # 401 / redirect to the login page = session gone. 403 is NOT a login problem:
+        # it means this student may not see that resource (e.g. a hidden Files tab).
+        if resp.status == 401 or "/login" in resp.url:
             raise CanvasLoginExpired(
                 f"Canvas says not logged in (HTTP {resp.status}). Sign in again (Duo once): "
                 f"tinyfish profile sign-in {self.s.tinyfish_profile_id}")

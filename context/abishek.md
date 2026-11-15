@@ -9,7 +9,8 @@ Code: `apps/browser-agent/` (FastAPI, port **9001** from `shared.env`) — merge
 - ✅ **Working on real ASU Canvas.** One sync ≈ 7 s for Canvas + ≈ 5–25 s for Gemini. Answers are instant from cache.
 - ✅ **To-do list = only work not submitted yet.** Submitted / excused / marked-complete items never appear (hard rule).
 - ✅ **Gemini** writes "what to do" steps, topics and notes for each open item.
-- ⏳ **Not built yet:** course materials (PDFs for Amrita), exam dates from announcements, grades, sync progress.
+- ✅ **Saswata's TODOs 1, 2, 3, 5 done:** `/brief`, `/items/{id}`, `/items/{id}/user-done` (+ undo), public Cloudflare URL with a shared-secret header. Reads never block on a sync any more.
+- ⏳ **Not built yet:** course materials (TODO 4, PDFs for Amrita), exam dates from announcements, grades.
 - There is **no Canvas API token** for ASU accounts. All Canvas data comes through a TinyFish browser that is logged in as the student.
 
 ## Decisions (locked)
@@ -27,8 +28,13 @@ Code: `apps/browser-agent/` (FastAPI, port **9001** from `shared.env`) — merge
 ```
 Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
                                    │
-   GET /items/next ── snapshot fresh (< 30 min)? ── yes ──> answer instantly
-                                   │ no / POST /sync
+   any read (/brief, /items/next, ...):
+     snapshot fresh (< 30 min)       → answer instantly
+     snapshot stale                  → answer instantly with it AND refresh in the background
+                                       (/brief shows sync_in_progress=true while it runs)
+     no snapshot yet (first run)     → wait for one sync
+   POST /sync                        → sync now and wait
+                                   │
                                    ▼
  1. TinyFish: open a cloud browser from the saved Browser Context Profile
     ("Jarvis - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
@@ -42,7 +48,8 @@ Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
  5. Gemini: ONE batched call with only the OPEN items (not submitted work,
     not office hours) → type check, steps, topics, notes                             ~5–25 s
  6. classify each item: rules → Gemini merge → hard to-do filter
- 7. save data/canvas_snapshot.json → answer
+ 7. re-apply student overrides ("I already did HW3", data/user_overrides.json)
+ 8. save data/canvas_snapshot.json → answer
 ```
 If a sync fails, the last good snapshot is served. If the ASU login expired: HTTP `503 canvas_login_expired` → run `tinyfish profile sign-in <profile_id>`, sign in with Duo once, retry.
 
@@ -61,18 +68,27 @@ If a sync fails, the last good snapshot is served. If the ASU login expired: HTT
 
 ## HTTP contract (for Saswata's orchestrator) — port 9001
 
-| Method + path | Returns | Speed |
-|---|---|---|
-| `GET /items/next?days=7` | **the to-do list** `{synced_at, data_source, items: [Item]}`, soonest first | instant (syncs if stale) |
-| `GET /items/next?days=7&include_done=true` | everything due incl. submitted work + events, each with `in_todo` + `todo_reason` | instant |
-| `GET /items?course_id=` | `{synced_at, data_source, items: [Item]}` | instant |
-| `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` | instant |
-| `GET /materials?course_id=` | `{synced_at, data_source, materials: [...]}` — **empty for real Canvas (next step)** | instant |
-| `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` | 10–35 s |
-| `GET /health` | `{ok, backend, llm, last_sync, last_error}` | instant |
+**Base URL:** local `http://localhost:9001` · public `PUBLIC_CANVAS_BASE` in `shared.env` (Cloudflare quick tunnel; changes when the tunnel restarts).
+**Auth:** every endpoint except `/health` and `/docs` needs header `X-Jarvis-Key: <BROWSER_AGENT_API_KEY>`. The key is **not in the repo** — Abishek sends it to you directly. In `/docs` use the "Authorize" button.
 
-Errors: `503 {"error":"canvas_login_expired","detail":...}` · `502 {"detail":...}` backend failure.
-**Tip for the orchestrator:** don't block a voice turn on `POST /sync` (it can take ~30 s). Call `/items/next` (instant from cache) and trigger `/sync` in the background on app start / when the user says "sync".
+| Brain tool | Method + path | Returns | Speed |
+|---|---|---|---|
+| `get_daily_brief` | `GET /brief?days=7` | `{synced_at, last_sync_age_minutes, sync_in_progress, data_source, items: [Item] (to-do only), courses: [Course]}` | instant |
+| `get_todo_list` | `GET /items/next?days=7` | **the to-do list** `{synced_at, data_source, items: [Item]}`, soonest first | instant |
+| — | `GET /items/next?days=7&include_done=true` | everything due incl. submitted work + events, each with `in_todo` + `todo_reason` | instant |
+| `get_item_details` | `GET /items/{item_id}` | one `Item` (404 `item_not_found`) | instant |
+| `get_course_items` | `GET /items?course_id=` | `{synced_at, data_source, items: [Item]}` | instant |
+| `list_courses` | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` | instant |
+| `get_course_materials` | `GET /materials?course_id=` | `{synced_at, data_source, materials: [...]}` — **empty for real Canvas (TODO 4)** | instant |
+| `mark_item_done_locally` | `POST /items/{item_id}/user-done` | the updated `Item` (`in_todo:false, user_done:true`) | instant |
+| (undo) | `DELETE /items/{item_id}/user-done` | the `Item` back as Canvas sees it | instant |
+| `sync_canvas` | `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` | 10–35 s |
+| `get_canvas_health` | `GET /health` | `{ok, backend, llm, last_sync, sync_in_progress, last_error}` | instant |
+
+Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` · `503 canvas_login_expired` (Abishek re-signs in) · `502` backend failure (see `detail`).
+**Reads never block on Canvas:** if the cache is stale they return the old data immediately and refresh in the background, so the brain never waits ~30 s mid-conversation. Only the very first call after a fresh start waits for one sync.
+
+**`user-done` semantics (differs slightly from the original TODO 3, on purpose):** Canvas is never written to. The override is stored in `data/user_overrides.json` and **survives re-syncs** (otherwise HW3 would pop back into the to-do list every 30 min while Canvas still says "not submitted"). It is dropped automatically when Canvas shows the item submitted/excused/complete, or when the due date passes. Marking an item that is already done in Canvas is a no-op. The brain should still write "student says HW3 done" to supermemory.
 
 ### Item (real example, trimmed)
 ```json
@@ -86,6 +102,7 @@ Errors: `503 {"error":"canvas_login_expired","detail":...}` · `502 {"detail":..
   "points": 40.0,
   "source_url": "https://canvas.asu.edu/courses/273189/assignments/7796330",
   "submitted": false,
+  "user_done": false,
   "in_todo": true,
   "todo_reason": "Not submitted yet",
   "what_to_do": ["Use template pa3.docx and name file pa3.docx",
@@ -110,19 +127,20 @@ Errors: `503 {"error":"canvas_login_expired","detail":...}` · `502 {"detail":..
 
 | File | Responsibility |
 |---|---|
-| `app/main.py` | HTTP routes + error mapping (503 login expired, 502 failure). No logic. |
-| `app/service.py` | One sync: `start_sync → courses → items → details (parallel) → end_sync → Gemini batch → classify → save`. Also cache-or-sync and the to-do query (`next_items`). |
+| `app/main.py` | HTTP routes, `X-Jarvis-Key` auth, error mapping (401, 404, 503 login expired, 502). No logic. |
+| `app/service.py` | One sync: `start_sync → courses → items → details (parallel) → end_sync → Gemini batch → classify → overrides → save`. Reads: fresh → instant, stale → instant + background refresh. Also `/brief`, item lookup, user-done/undo, to-do query. |
+| `app/overrides.py` | Student "I already did it" overrides in `data/user_overrides.json`; re-applied after each sync, auto-pruned when Canvas catches up or the due date passes. |
 | `app/backends/base.py` | Contract every backend follows + `CanvasLoginExpired`. |
 | `app/backends/tinyfish.py` | Opens the TinyFish profile browser, connects Playwright, reads Canvas JSON, converts it to `RawItem`s, closes the browser. |
 | `app/backends/mock.py` | Labeled demo data, no keys. |
 | `app/classify.py` | Rules → Gemini merge → hard to-do filter → `Item`. |
 | `app/llm.py` | Gemini classifier: one batched call, structured JSON output, model fallback, safe prompt. |
-| `app/models.py` | All JSON shapes: `RawItem`, `Item`, `Course`, `Material`, `Snapshot`, `SyncResult`, `Health`. |
+| `app/models.py` | All JSON shapes: `RawItem`, `Item`, `Course`, `Material`, `Snapshot`, `SyncResult`, `Health`, `Brief`. |
 | `app/cache.py` | `data/canvas_snapshot.json` (gitignored) + freshness check. |
 | `app/config.py` | Env settings (`.env`, see `.env.example`). |
 | `app/materials.py` | PDF text extraction with `pypdf` — used by the course-materials step (next). |
 | `scripts/export_mock.py` | Regenerates `mocks/canvas_snapshot.json`. |
-| `tests/unit`, `tests/api`, `tests/fixtures` | 50 tests, no network: classifier, Canvas JSON conversion, Gemini parsing + fallback, every endpoint. |
+| `tests/unit`, `tests/api`, `tests/fixtures` | 64 tests, no network: classifier, Canvas JSON conversion, Gemini parsing + fallback, background refresh, overrides, auth, every endpoint. |
 
 ## Setup (for whoever runs it)
 
@@ -146,13 +164,27 @@ Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TI
 - **Amrita (quiz):** materials (PDF text) are the next thing I build; until then use `mocks/canvas_snapshot.json` → `materials`.
 - **Shruti (UI):** render `items` directly; every item has `source_url`, `due_at`, `notes`; show "syncing…" while `/sync` runs.
 
+## For Saswata — read this before wiring the Hermes harness (Nov 14, late)
+
+TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to apply on your side:
+
+1. **Base URL:** `PUBLIC_CANVAS_BASE` in `shared.env` (Cloudflare quick tunnel). It **changes every time the tunnel restarts** — Abishek updates `shared.env` when it does. Local: `http://localhost:9001`.
+2. **Auth header on every call** (except `/health`, `/docs`): `X-Jarvis-Key: <key>`. The key is **not in the repo** — Abishek sends it to you privately. Put it in `apps/orchestrator/.env` (e.g. `CANVAS_API_KEY=`), never in `shared.env` or code. Missing/wrong key → `401`.
+3. **Tool → endpoint map:** use the "HTTP contract" table above (brain tool name → method + path). Response shapes are exact there.
+4. **`mark_item_done_locally` semantics changed slightly from your TODO 3 (on purpose):** the override **survives re-syncs** until Canvas shows the item submitted or the due date passes (otherwise HW3 pops back every 30 min). Undo = `DELETE /items/{id}/user-done`. Still write "student says HW3 done" to supermemory as you planned.
+5. **Reads never block on Canvas.** Stale cache → old data instantly + background refresh (`sync_in_progress: true` in `/brief`). Only the first call after a fresh service start waits ~20 s. So `get_daily_brief` / `get_todo_list` are always safe mid-conversation; keep `sync_canvas` for explicit "refresh now".
+6. **Gemini model:** your build plan pins **Gemini 2.5 Flash** — with a new API key Google returns *404 "no longer available to new users"*. Use **`gemini-3.5-flash`** (≈5 s) or `gemini-3.5-flash-lite` (≈1 s). On Nov 14, `gemini-3.7-flash` / `gemini-3.8-flash` hung > 2 min and `gemini-flash-latest` returned 503. Add a fallback model + a ~30 s timeout.
+7. **Port mismatch to settle with Amrita:** your diagram says materials/quiz on `:9003`, `shared.env` says `RETRIEVAL_QUIZ_PORT=9002`.
+8. **Error handling in the brain:** `503 canvas_login_expired` → tell the user "Canvas login expired, Abishek needs to re-sign in" (don't retry in a loop). `404 item_not_found` → item ids come from `/brief` or `/items/next` (format `assignment-7796330`, `quiz-2062789`, `discussion_topic-…`).
+9. **Materials (`get_course_materials`) is still empty for real Canvas** — TODO 4 is next on Abishek's list.
+
 ## TODO from Saswata (orchestrator) — unblocks voice demo
 
 System design is locked (`context/saswata.md` → "System design — LOCKED"). Your service stays stateless; brain owns supermemory. Four endpoint-level todos + one infra todo. All in your existing cache / Snapshot shape, no architectural change.
 
 Format: each item is a copy-pasteable instruction. Mark `[x]` when done.
 
-### [ ] TODO 1 — add `GET /brief?days=7` endpoint (highest priority, ~15 min)
+### [x] TODO 1 — add `GET /brief?days=7` endpoint — DONE (also returns `data_source`; `sync_in_progress` is real)
 
 Single bundled call for voice "good morning / what's due" and the Daily Pulse cron. Saves 2-3 round trips per common prompt.
 
@@ -175,7 +207,7 @@ async def brief(request: Request, days: int = Query(7, ge=1, le=60)):
 
 Brain calls this as `get_daily_brief`. This becomes the single most-called tool in the system.
 
-### [ ] TODO 2 — add `GET /items/{item_id}` endpoint (~5 min)
+### [x] TODO 2 — add `GET /items/{item_id}` endpoint — DONE
 
 For "tell me more about HW3" — full details from cached snapshot.
 
@@ -191,7 +223,7 @@ async def item_detail(request: Request, item_id: str):
 
 Brain calls this as `get_item_details`.
 
-### [ ] TODO 3 — add `POST /items/{item_id}/user-done` endpoint (~20 min)
+### [x] TODO 3 — add `POST /items/{item_id}/user-done` endpoint — DONE (override survives re-syncs until Canvas catches up; `DELETE` = undo; see contract above)
 
 Student says "I already did HW3." We flag locally until next sync overwrites. Canvas remains untouched.
 
@@ -234,7 +266,7 @@ Already your top priority. Minimal first cut unblocks Amrita even without PDF ex
 - Return `Material` with `id`, `course_id`, `title`, `type`, `url`.
 - Text extraction (your step 1's `pypdf` pass) can land in a second commit — Amrita can validate her embedding pipeline off URLs first.
 
-### [ ] TODO 5 — expose your service over Cloudflare tunnel
+### [x] TODO 5 — expose your service over Cloudflare tunnel — DONE (URL in `shared.env` → `PUBLIC_CANVAS_BASE`; needs `X-Jarvis-Key` header)
 
 Saswata already did this for `apps/voice/` — follow the exact same pattern so your `:9001` service is reachable from anywhere (orchestrator / phone / judge laptop during demo), not just localhost.
 
@@ -283,13 +315,34 @@ Notes:
 
 Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voice end-to-end. TODO 4 unblocks Amrita separately.
 
-## Next steps (in order)
+## Abishek's TODO list (in order) — mark `[x]` when done
 
-1. **Course materials** — `/api/v1/courses/:id/files` + modules → download PDFs → `pypdf` text → `/materials` (unblocks Amrita).
-2. **Exam prep** — read announcements/syllabus, Gemini extracts exam **date + topics** → `exam` items with `exam_prep`.
-3. **Grades** — submission scores ("HW4 → 9/10") for Saswata's supermemory demo and the Daily Pulse "past grade on similar" lane.
-4. **Sync progress / background sync** for the UI + orchestrator.
-5. **Stress test** — repeated syncs, expired login, Gemini down, TinyFish slow, empty weeks.
+### [ ] A. Course materials (= Saswata's TODO 4) — unblocks Amrita
+- `TinyFishBackend.fetch_materials(course)`: read `/api/v1/courses/:id/modules?include[]=items` + `/api/v1/courses/:id/files` in the same logged-in browser.
+- First cut: `Material {id, course_id, title, type, url}` list → `/materials?course_id=` (Amrita can start on URLs).
+- Second cut: download PDFs through the logged-in browser → `pypdf` text → `extracted_text` (+ `local_path`).
+- A course with a hidden Files tab returns `403` → skip that source, don't fail the sync (the 403-vs-login fix is already in).
+- Optional `topic_hint` filter for `get_course_materials(course_id, topic_hint?)`.
+
+### [ ] B. Exam prep
+- Pull announcements (`/api/v1/announcements?context_codes[]=course_:id`) + syllabus body for current courses.
+- Gemini extracts **exam date + topics** from that text ("Midterm 2 next Thursday covers AVL trees and heaps") → `exam` items with `due_at`, `topics`, `suggested_action: exam_prep`, `source_url` = the announcement.
+- Exams must show in `/brief` and `/items/next`; the brain routes them to Amrita's quiz engine.
+
+### [ ] C. Grades
+- Submission scores per assignment (`/api/v1/courses/:id/students/submissions?student_ids[]=self` or planner `submissions`) → e.g. "HW4 → 9/10".
+- New endpoint (e.g. `GET /grades?course_id=`) for Saswata's supermemory demo + Daily Pulse "past grade on similar" lane. The brain writes the facts to supermemory, not this service.
+
+### [ ] D. Stress test
+- Repeated `/sync` and many parallel reads; stale-cache background refresh under load.
+- Expired Canvas login (→ `503`), Gemini down / slow (→ rules only), TinyFish slow / down (→ stale snapshot served).
+- Empty weeks, courses with no items, items without due dates, very long instructions.
+- Public tunnel restart → new URL → update `shared.env`.
+
+### Done
+- [x] Real Canvas via TinyFish (JSON in the logged-in browser), to-do list without submitted work, Gemini steps/topics/notes.
+- [x] Saswata's TODOs 1, 2, 3, 5: `/brief`, `/items/{id}`, user-done + undo, public tunnel + `X-Jarvis-Key`.
+- [x] Background refresh (reads never block). Optional later: live sync progress for the UI.
 
 ## Open questions
 

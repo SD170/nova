@@ -90,6 +90,7 @@ class Item(BaseModel):
     points: float | None = None
     source_url: str
     submitted: bool | None = None
+    user_done: bool = False  # student said "I did this" (POST /items/{id}/user-done)
     in_todo: bool
     todo_reason: str
     what_to_do: list[str] = Field(default_factory=list)
@@ -137,4 +138,24 @@ class Health(BaseModel):
     backend: str
     llm: str
     last_sync: datetime | None
+    sync_in_progress: bool = False
     last_error: str | None = None
+
+
+class Brief(BaseModel):
+    """GET /brief — one bundled call for 'good morning / what's due'."""
+
+    synced_at: datetime
+    last_sync_age_minutes: float
+    sync_in_progress: bool
+    data_source: DataSource
+    items: list[Item]       # to-do only, soonest first
+    courses: list[Course]   # current courses only
+
+
+class ItemNotFound(Exception):
+    pass
+
+
+class NoSnapshot(Exception):
+    """No data yet: call POST /sync first."""

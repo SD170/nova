@@ -23,7 +23,7 @@ Open http://localhost:9001/docs → `POST /sync` → `GET /items/next`.
 **One-time Canvas login** (or when the API says `canvas_login_expired`):
 `tinyfish profile sign-in <TINYFISH_PROFILE_ID>` → open the link → sign in to Canvas (ASU SSO + Duo) → save.
 
-**Tests:** `pytest` (no network; 50 tests).
+**Tests:** `pytest` (no network; 64 tests).
 **Demo mock for teammates:** `python -m scripts.export_mock` → `mocks/canvas_snapshot.json`.
 
 ## How one sync works
@@ -39,7 +39,7 @@ Open http://localhost:9001/docs → `POST /sync` → `GET /items/next`.
 5. Gemini: ONE batched call for the open items → steps, topics, notes          ~5–25 s
 6. Rules + hard to-do filter → data/canvas_snapshot.json
 ```
-Read endpoints answer instantly from the snapshot (fresh for 30 min), sync when stale, and serve the last good snapshot if a sync fails.
+Reads never wait on Canvas: fresh snapshot → instant; stale → instant with the old data while a background refresh runs; only the very first call waits for one sync.
 
 ## Classification (3 layers)
 
@@ -49,9 +49,14 @@ Read endpoints answer instantly from the snapshot (fresh for 30 min), sync when 
 
 ## Endpoints (port 9001)
 
+Auth: if `BROWSER_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every endpoint except `/health` and `/docs`.
+
 | Method + path | Returns |
 |---|---|
-| `GET /health` | `{ok, backend, llm, last_sync, last_error}` |
+| `GET /health` | `{ok, backend, llm, last_sync, sync_in_progress, last_error}` |
+| `GET /brief?days=7` | to-do list + current courses + `last_sync_age_minutes` + `sync_in_progress` (one call for "good morning") |
+| `GET /items/{item_id}` | one item's full details |
+| `POST /items/{item_id}/user-done` / `DELETE` | student says "I did it" (kept until Canvas catches up or due date passes) / undo |
 | `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` |
 | `GET /items/next?days=7` | **to-do list** `{synced_at, data_source, items: [Item]}` — not submitted, soonest first |
 | `GET /items/next?days=7&include_done=true` | everything due (submitted work + events too) with `in_todo` + `todo_reason` |
@@ -59,12 +64,13 @@ Read endpoints answer instantly from the snapshot (fresh for 30 min), sync when 
 | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` |
 | `GET /materials?course_id=` | course materials (empty for real Canvas — next step) |
 
-Errors: `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
+Errors: `401` wrong/missing key · `404 item_not_found` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
 
 ## Env vars (see `.env.example`; secrets in `.env`, gitignored)
 
 | Var | Default | Meaning |
 |---|---|---|
+| `BROWSER_AGENT_API_KEY` | empty | Shared secret for `X-Jarvis-Key` (set it before going public) |
 | `BROWSER_BACKEND` | `mock` | `mock` (labeled demo data) / `tinyfish` (real Canvas) |
 | `CACHE_TTL_MINUTES` | `30` | How long a snapshot counts as fresh |
 | `SYNC_DAYS` / `SYNC_PAST_DAYS` | `14` / `0` | Window of items fetched |
@@ -80,7 +86,8 @@ Errors: `503 {"error": "canvas_login_expired"}` → sign in again · `502` → b
 ```
 app/
   main.py               HTTP routes + error mapping only
-  service.py            one sync: start → fetch → details → Gemini → classify → end → save; to-do query
+  service.py            one sync: start → fetch → details → Gemini → classify → overrides → save; reads, brief, user-done
+  overrides.py          student "I did it" overrides (data/user_overrides.json)
   classify.py           rules → LLM merge → hard to-do filter
   llm.py                Gemini batched classifier (structured JSON, model fallback)
   models.py             all JSON shapes (RawItem, Item, Course, Material, Snapshot, ...)
@@ -99,7 +106,15 @@ tests/
   fixtures/             classify_cases.json (labeled examples)
 ```
 
+## Public URL (Cloudflare quick tunnel)
+
+```bash
+uvicorn app.main:app --port 9001                                   # terminal 1
+cloudflared tunnel --no-autoupdate --url http://localhost:9001      # terminal 2 → prints https://xxx.trycloudflare.com
+```
+Put the URL in repo-root `shared.env` as `PUBLIC_CANVAS_BASE` (it changes every restart). Always set `BROWSER_AGENT_API_KEY` first.
+
 ## Status
 
-Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics.
+Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics, /brief, /items/{id}, user-done overrides, background refresh, shared-secret auth, public tunnel.
 Next: course materials (PDFs for the quiz engine), exam prep (exam dates from announcements), grades for the Daily Pulse, stress test.

@@ -4,7 +4,8 @@ def test_health_before_sync(client):
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json() == {"ok": True, "backend": "mock", "llm": "off (rules only)",
-                        "last_sync": None, "last_error": None}
+                        "last_sync": None, "sync_in_progress": False,
+                        "last_error": None}
 
 
 def test_sync_counts(client):

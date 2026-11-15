@@ -1,0 +1,51 @@
+# Student Jarvis brain — voice-call profile.
+# Pinned for low latency + direct-to-point replies. Spawned by apps/vapi-bridge.
+#
+# NOTE: this profile is meant to be driven non-interactively via `hermes chat -q`,
+# with `HERMES_HOME=~/.hermes/profiles/shruti`.
+
+model:
+  default: claude-haiku-4-5
+  provider: anthropic
+fallback_providers: []
+agent:
+  max_turns: 12                # voice turns are short; cap tool loops
+  tool_use_enforcement: auto
+  reasoning_effort: minimal    # latency > reasoning depth in voice path
+  verbose: false
+toolsets:
+  - hermes-cli
+display:
+  compact: true
+  personality: concise         # not kawaii — this voice goes to end-users
+  bell_on_complete: false
+  show_cost: false
+  final_response_markdown: strip
+memory:
+  memory_enabled: true          # Hermes native memory in this profile's memories/
+  user_profile_enabled: true
+compression:
+  enabled: true
+  threshold: 0.6
+approvals:
+  mode: deny                    # voice can't surface approvals; block destructive tools
+command_allowlist: []
+privacy:
+  redact_pii: false
+mcp_servers:
+  # Canvas MCP from Abishek — HTTP shim at /mcp. Wired after he ships TODO 6.
+  # For now we call his REST endpoints via `terminal` + `curl`; swap to this when ready.
+  #
+  # canvas:
+  #   url: ${PUBLIC_CANVAS_BASE}/mcp
+  #   headers:
+  #     X-Jarvis-Key: ${CANVAS_API_KEY}
+  #   timeout: 30
+provider_routing:
+  sort: price
+  data_collection: deny
+code_execution:
+  mode: project
+  timeout: 60
+  max_tool_calls: 20
+_config_version: 22

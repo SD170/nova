@@ -1,0 +1,23 @@
+# runtime state — each machine has its own
+hermes-home/shruti/memories/
+hermes-home/shruti/sessions/
+hermes-home/shruti/logs/
+hermes-home/shruti/cache/
+hermes-home/shruti/audio_cache/
+hermes-home/shruti/image_cache/
+hermes-home/shruti/home/
+hermes-home/shruti/hooks/
+hermes-home/shruti/cron/
+hermes-home/shruti/auth.lock
+hermes-home/shruti/.env
+hermes-home/shruti/state.db*
+hermes-home/shruti/sessions.db*
+
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/

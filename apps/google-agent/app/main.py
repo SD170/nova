@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import APIKeyHeader
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp
@@ -55,6 +56,7 @@ from .models import (
     SyncPlan,
 )
 from .news import NewsClient
+from .panel import build_summary
 from .research import CompanyResearcher
 from .service import WorkspaceService
 
@@ -171,6 +173,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Nova Gmail + Calendar agent", version="0.1.0", lifespan=lifespan)
     protected = [Depends(require_key)]
+    app.add_middleware(CORSMiddleware, allow_origins=settings.nova_cors_origins,
+                       allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+                       allow_headers=["X-Canvas-Key", "Content-Type"])
 
     mcp = build_mcp(lambda: app.state.service)
     mcp.streamable_http_app()  # creates mcp.session_manager
@@ -370,6 +375,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def memory_remember(request: Request, body: RememberRequest):
         doc_id = await svc(request).memory.remember(body.fact, kind=body.kind)
         return {"saved": True, "id": doc_id}
+
+    @app.get("/panel/summary", dependencies=protected, tags=["panel"])
+    async def panel_summary(request: Request):
+        """Everything the side panel shows, one call (each section independent)."""
+        return await build_summary(svc(request))
 
     @app.get("/panel/feed", dependencies=protected, tags=["panel"])
     async def panel_feed(request: Request, since: int = Query(0, ge=0)):

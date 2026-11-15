@@ -8,6 +8,7 @@ import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { TaskPanel } from './ui/TaskPanel'
 import { BootTitle } from './ui/BootTitle'
 import { Hud } from './ui/Hud'
+import { NovaDesk } from './nova/NovaDesk'
 import { presence } from './avatar/presence'
 import { installTaskChime, toggleMute, warmUpAudio } from './audio/chime'
 import { PushToTalk, type SpeechHandler } from './voice/pushToTalk'
@@ -217,6 +218,7 @@ export default function App() {
       <div className={`ui-layer ${mode === 'boot' ? 'ui-layer--hidden' : ''}`}>
         <Hud />
         <TaskPanel />
+        <NovaDesk />
       </div>
       <BootTitle />
       <ListeningBadge visible={listening} />

@@ -142,6 +142,7 @@ Auth: if `CANVAS_API_KEY` is set, send `X-Canvas-Key` on everything except `/hea
 | `POST /quiz/start` `{course, topic?, count}` | grounded ≤6-question multiple-choice quiz (+ flashcard PDF in the background) |
 | `GET /quiz/latest`, `GET /quiz/{id}`, `POST /quiz/{id}/begin`, `/answer`, `/finish` | quiz session (voice or panel) |
 | `POST /vapi/quiz` | fast Vapi function tool: `quiz_answer`, `quiz_repeat` |
+| `GET /panel/summary` | everything the side panel shows, one call (today, mail, courses, news, linkedin, memory, saved, quiz), each section independent |
 | `GET /panel/feed?since=` | meaningful notifications (quiz ready, PDF saved, score) |
 | `GET /memory/profile`, `/memory/recall?q=`, `/memory/recent`, `POST /memory/remember` | supermemory |
 | `POST /mcp` | MCP streamable-HTTP, 24 tools |
@@ -163,6 +164,7 @@ app/
   mcp_server.py      24 MCP tools + KeyGuard
   exam.py            exam facts, grounded quiz, quiz session, flashcard PDF job
   pdfgen.py          the 2-page flashcard PDF (reportlab)
+  panel.py           GET /panel/summary for the side panel
   feed.py            notification feed (quiz ready, PDF saved, score)
   memory.py          supermemory client, quiz-result fact, weak-topic lookup
   service.py         all logic (inbox, new mail, drafts, calendar, Canvas sync, auto sync, research, docs)

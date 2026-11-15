@@ -6,6 +6,8 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 
 ## Status (Nov 15, morning)
 
+- ✅ **Side panel "Nova Desk" built (Nov 15, in Shruti's app, by Abishek; NOT yet run by Claude — Abishek tests it):** a slim rail on the right edge that opens into a glass sheet (same look as the tasks card, which slides left when the desk is open). Tabs: **Today** (due items + calendar), **Mail** (important first), **Courses** (exam date + a "Quiz me" button), **News**, **LinkedIn**, **Saved** (files Nova made, Open / Show in Finder), **Memory**. Plus: a **LIVE / DEMO DATA** chip, a "latest" strip, toasts only for things that finished (quiz ready, PDF saved, score), and the **quiz in the panel**: questions pop up one by one, score + review at the end. When `pdf_saved` arrives the app **downloads the PDF into `~/Nova/Exam Prep/` on that laptop** (Electron main process; only `~/Nova` is ever written/opened). Backend: `GET /panel/summary` (one call, each section independent) + `GET /panel/feed`.
+
 - ✅ **Exam prep (Nov 15):** `exam_info` (exam dates + topics read from the syllabus, every date backed by a quote), `quiz_start` → `quiz_begin(voice|panel)` → `quiz_answer` → score, `quiz_status`. A **6-question multiple-choice** quiz from the real course material (each question carries a quote that is **verified to be in the material, otherwise the question is dropped**; no course-logistics questions). A small **flashcard PDF** (2 pages, ~4 KB) is made in the background and saved to `~/Nova/Exam Prep/` on the service laptop; the app downloads its own copy. Notifications via `GET /panel/feed`. Fast voice path: `POST /vapi/quiz`.
 - ✅ **Supermemory (Nov 15):** `memory_profile`, `memory_recall`, `memory_remember`, `memory_forget` in the workspace MCP (REST API key, no OAuth). Every finished quiz is **saved automatically** (score, weak + strong topics) and the **next quiz leans on the weak topics** ("skips strong, hits weak"), tested live on real supermemory. Demo/mock mode uses a separate `<namespace>_demo` namespace.
 - ✅ **Demo label:** every MCP tool says "Demo data." out loud when it runs on mock data. Gemini calls for exam prep retry on temporary overload (503).
@@ -283,6 +285,24 @@ REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/m
 - **Notifications (meaningful only):** `GET /panel/feed?since=<last id>` → `quiz_ready`, `pdf_saved` (`data.download_url`, `filename`, `saved_path`), `quiz_panel` (open the panel quiz), `quiz_score`, `memory` (`data.quiet=true`: show in the Memory tab, no toast), `pdf_failed`. Nothing per answer.
 - **REST for the side panel:** `POST /quiz/start`, `GET /quiz/latest`, `GET /quiz/{id}`, `POST /quiz/{id}/begin {mode}`, `POST /quiz/{id}/answer {choice, index}`, `POST /quiz/{id}/finish`; memory tab: `GET /memory/profile`, `/memory/recall?q=`, `/memory/recent`, `POST /memory/remember`.
 - **Memory rules:** supermemory namespace `SUPERMEMORY_NAMESPACE` (default `nova_student`); the key is only in `apps/google-agent/.env`. Saswata's rule was "only the brain writes": the brain writes facts through `memory_remember`; the quiz tool saves one deterministic fact itself (the quiz result) because it knows it for certain.
+
+**Side panel — Nova Desk (drafts/shruti/app/src/nova/)**
+
+| File | What it does |
+|---|---|
+| `NovaDesk.tsx` | the shell: rail ↔ desk, tabs, toasts, quiz hand-off (voice → "side panel" opens it here) |
+| `Tabs.tsx` | Today / Mail / Courses / News / LinkedIn / Saved / Memory (display only) |
+| `QuizPanel.tsx` | one question at a time, then score + review (`POST /quiz/{id}/answer`, `/finish` via the last answer) |
+| `useDesk.ts` | polls `/panel/summary` (45 s) and `/panel/feed` (2.5 s); on `pdf_saved` downloads the PDF; old events never toast after a fresh start |
+| `files.ts` | save to `~/Nova/Exam Prep` through Electron (`window.novaFiles`), browser download in plain-browser dev |
+| `electron/preload.cjs` + `main.cjs` | `novaFiles.save/open/reveal`; main process fetches with the key header and writes only under `~/Nova` |
+| `nova.css`, `icons.tsx`, `types.ts`, `config.ts`, `api.ts` | styling (same glass tokens as the tasks card), icons, shapes, `VITE_NOVA_*` config, fetch helper |
+
+**To run it (the laptop that runs the app, i.e. Saswata's):**
+1. `git pull`, then `cd drafts/shruti/app && cp .env.example .env` and fill `VITE_NOVA_BASE` (= `PUBLIC_WORKSPACE_BASE` in `shared.env`) and `VITE_NOVA_KEY` (= the shared `CANVAS_API_KEY`, sent privately). Keep the existing `VITE_VAPI_*` values.
+2. `npm install` (first time), then `npm run dev`. The desk opens by itself on a window ≥ 1200 px wide; the toggle is the rail on the right edge.
+3. The workspace service must have the new code (`GET /panel/summary` and CORS for `http://localhost:5173` and Electron `null`); `NOVA_CORS_ORIGINS` in its `.env` can add origins.
+4. Quiz by panel: say "quiz me on CSE 540" → "side panel" → the quiz opens in the desk; or tap **Quiz me** on a course card (works without voice).
 
 **FAST voice quiz path (Saswata, ~10 lines):** a spoken answer should not go through Hermes (~10 s per answer). Add two Vapi **function tools** like `check_task` in `setup_vapi.py`, pointing at my service, and one router rule:
 ```python

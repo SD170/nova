@@ -229,3 +229,26 @@ def fake_memory(monkeypatch):
 
     monkeypatch.setattr(MemoryClient, "_req", _req)
     return state
+
+
+@pytest.fixture
+def fake_panel(monkeypatch):
+    """Canvas /brief and /linkedin/summary for the side panel (courses come from fake_exam)."""
+    from datetime import datetime, timedelta, timezone
+    due = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    data = {
+        "/brief": {"data_source": "live", "items": [
+            {"id": "assignment-1", "course_code": "BMI/BME/CEN/CSE507-494", "type": "assignment",
+             "title": "Graded Quiz: Module 5  - Requires Respondus LockDown Browser + Webcam",
+             "due_at": due, "points": 24, "source_url": "https://canvas/q5"}]},
+        "/linkedin/summary": {"posts_seen": 25, "engaged_posts": 16, "interests": [{"topic": "AI agents"}],
+                              "companies": [{"name": "Anthropic"}], "people": [
+                                  {"name": "Avi Chawla", "headline": "Co-founder DailyDoseofDS", "company": None,
+                                   "reasons": ["You engaged with 1 of their posts"], "profile_url": "https://li/avi",
+                                   "suggested_action": "Comment on their post, then connect"}]}}
+
+    async def _get(self, path, params=None, timeout=30):
+        return data[path]
+
+    monkeypatch.setattr(CanvasClient, "_get", _get)
+    return data

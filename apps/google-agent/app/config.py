@@ -46,6 +46,9 @@ class Settings(BaseSettings):
 
     tinyfish_api_key: str = ""
 
+    # Browsers/Electron that may call this service (the side panel). "null" = Electron file://
+    nova_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173", "null"]
+
     # Supermemory (long-term memory). Key: console.supermemory.ai -> API keys. One namespace per student.
     supermemory_api_key: str = ""
     supermemory_namespace: str = "nova_student"
@@ -55,7 +58,7 @@ class Settings(BaseSettings):
     news_service_url: str = "http://localhost:9004"
     news_api_key: str = ""   # only if her NEWS_AGENT_API_KEY is set (sent as X-Jarvis-Key)
 
-    @field_validator("gemini_fallback_models", mode="before")
+    @field_validator("gemini_fallback_models", "nova_cors_origins", mode="before")
     @classmethod
     def _split(cls, v):
         if isinstance(v, str):

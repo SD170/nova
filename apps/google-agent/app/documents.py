@@ -93,6 +93,16 @@ class DocumentStore:
         (self.dir / f"{doc_id}.json").write_text(result.model_dump_json())
         return result
 
+    def list(self, limit: int = 20) -> list[DocumentResult]:
+        """Saved files, newest first."""
+        out = []
+        for f in (self.dir.glob("*.json") if self.dir.exists() else []):
+            try:
+                out.append(DocumentResult(**json.loads(f.read_text())))
+            except (OSError, ValueError):
+                continue
+        return sorted(out, key=lambda d: d.created_at, reverse=True)[:limit]
+
     def get(self, doc_id: str) -> tuple[Path, DocumentResult]:
         if not re.fullmatch(r"[0-9a-f]{12}", doc_id):
             raise DocumentNotFound(doc_id)

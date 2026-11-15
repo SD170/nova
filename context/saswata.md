@@ -2,6 +2,17 @@
 
 Owner: Saswata Dutta (GitHub: SD170)
 
+## Status — Nov 15, 00:30 local
+
+**Brain is live.** Voice turns are going Vapi → Cloudflare tunnel → bridge → Hermes (Claude Haiku, in-repo profile) → voice.
+
+- Main assistant: **Nova** (voice: Elliot; neutral confident). Vapi id: `f6bd0e01-6592-4ff9-98e8-4a90456441a9`
+- Student-peer persona: **Shruti** (voice: Savannah; warm). Vapi id: `ca586ee1-e4e2-4148-a51b-f60d9737c00f`
+- Transfer: Nova has a `transferCall` tool → Shruti, and vice versa. Say "talk to me as Shruti" / "back to Nova."
+- Brain: `apps/brain/hermes-home/default/` (Hermes profile in the repo, NOT in `~/.hermes/`). Same brain serves both personas; persona injected per turn via `[persona: nova|shruti]` prefix.
+- Public tunnel: `PUBLIC_BRAIN_BASE` in `shared.env` — quick tunnel, URL rotates on restart.
+- No tool calls wired yet. Canvas (`apps/browser-agent`) still exposed on its own tunnel; adding its MCP into Hermes config is the next step.
+
 ## Architecture (what we're actually building)
 
 ```

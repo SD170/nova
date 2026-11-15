@@ -12,7 +12,12 @@ const BRIDGE_URL =
   (import.meta.env.VITE_BRIDGE_URL as string | undefined) ??
   'http://127.0.0.1:8000'
 
-const POLL_MS = 1500
+// Fast poll while a task is running. Nova usually speaks the answer right
+// around when the bridge flips the task to done; we want the UI card to
+// catch up within ~half a second so the two land together visually.
+// 400ms × 2.5 round-trips on localhost = ~1s worst case. Battery hit is
+// negligible — the poller stops the moment the queue drains.
+const POLL_MS = 400
 let timer: number | null = null
 
 async function tick(): Promise<void> {
@@ -36,20 +41,29 @@ async function tick(): Promise<void> {
     }
 
     const uiTasks = getTasks()
+    const runningUi = uiTasks.filter((t) => t.status === 'running')
     for (const srv of data.tasks ?? []) {
       if (srv.status !== 'done' && srv.status !== 'error') continue
-      // Match to a still-running UI row by question/title prefix.
-      const match = uiTasks
-        .slice()
-        .reverse()
-        .find(
-          (t) =>
-            t.status === 'running' &&
-            srv.question &&
-            t.title &&
-            (srv.question.startsWith(t.title.replace(/…$/, '')) ||
-              t.title.startsWith(srv.question.slice(0, 32))),
-        )
+      // Match strategy, best → worst:
+      //   (1) exact server-question == UI title
+      //   (2) prefix match either direction
+      //   (3) single-running fallback — if only one task is running and server
+       //       just finished one, they're the same task. This is what keeps the
+       //       UI card from stalling 'Working…' when the title string mismatches
+       //       after a tool re-ask or trailing whitespace drift.
+      let match =
+        runningUi.find((t) => srv.question && t.title === srv.question) ??
+        runningUi
+          .slice()
+          .reverse()
+          .find(
+            (t) =>
+              srv.question &&
+              t.title &&
+              (srv.question.startsWith(t.title.replace(/…$/, '')) ||
+                t.title.startsWith(srv.question.slice(0, 32))),
+          )
+      if (!match && runningUi.length === 1) match = runningUi[0]
       if (!match) continue
       const full = srv.result_full ?? srv.result ?? ''
       if (srv.status === 'done') {
@@ -86,4 +100,11 @@ export function initTaskPoller(): void {
     if (hasRunning()) start()
     else stop()
   })
+}
+
+/** Force a one-off poll from outside (e.g. Vapi 'speech-end' — Nova just
+ *  finished saying the answer, the bridge has almost certainly flipped the
+ *  task to done already, so an immediate tick closes the UI lag). */
+export function pingTaskPoller(): void {
+  void tick()
 }

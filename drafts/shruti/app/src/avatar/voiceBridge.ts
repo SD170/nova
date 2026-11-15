@@ -32,6 +32,7 @@ import {
   getTasks,
   type TaskType,
 } from '../tasks/tasks'
+import { pingTaskPoller } from '../tasks/poller'
 
 export function createVoiceHooks(avatar: Pick<Avatar3DHandle, 'setState'>) {
   let userTalking = false
@@ -112,7 +113,14 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
 
   const handlers: [string, (...a: any[]) => void][] = [
     ['speech-start', () => hooks.assistantSpeechStart()], // Vapi: assistant started talking
-    ['speech-end', () => hooks.assistantSpeechEnd()],
+    ['speech-end', () => {
+      hooks.assistantSpeechEnd()
+      // Nova just finished speaking. If that utterance was 'the answer', the
+      // bridge already marked the matching task 'done'. Nudge the poller so
+      // the UI card flips to Done within ~80ms instead of waiting for the
+      // next scheduled tick (would be up to 400ms lag).
+      pingTaskPoller()
+    }],
     ['call-end', () => hooks.callEnd()],
     // assistant output volume 0..1 → lip-sync fallback when no audio stream is connected
     ['volume-level', (v: number) => avatar.setLevel(v)],

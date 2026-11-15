@@ -1,0 +1,12 @@
+DEMO DOCUMENT - FICTIONAL VALUES - NOT A REAL INSURANCE STATEMENT
+Sun Valley Student Health Plan (fictional)
+EXPLANATION OF BENEFITS - THIS IS NOT A BILL
+Member: Sam Rivera (fictional demo student)
+Provider: Riverside Student Health Center (fictional)
+
+Date of service | Code | Service | Amount billed | Allowed amount | Plan paid | Your responsibility | Notes
+11/10/2026 | 99213 | Office visit | $180.00 | $126.00 | $96.00 | $30.00 | Copay applied
+11/10/2026 | 73610 | Radiology, ankle X-ray | $140.00 | $90.00 | $72.00 | $18.00 | 20% coinsurance
+11/10/2026 | L4361 | Durable medical equipment, walking boot | $95.00 | $0.00 | $0.00 | $0.00 | Claim pending - additional information requested
+
+Total your responsibility: $48.00

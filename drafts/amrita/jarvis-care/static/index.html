@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jarvis Care · Student Jarvis</title>
+  <meta name="description" content="Jarvis Care — your health, explained. Voice-first, accessible care navigation inside Student Jarvis.">
+  <meta name="color-scheme" content="light dark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap">
+  <link rel="stylesheet" href="/static/care.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23126E67'/%3E%3Cpath d='M16 23s-7-4.3-7-9.2A3.8 3.8 0 0 1 16 11.6a3.8 3.8 0 0 1 7 2.2C23 18.7 16 23 16 23z' fill='%23fff'/%3E%3C/svg%3E">
+  <script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <a class="skip-link" href="#voice-input">Skip to message box</a>
+
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="/health" data-link aria-label="Student Jarvis, Jarvis Care home">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <span class="brand__text"><strong>Student Jarvis</strong> <span class="brand__module">Care</span></span>
+      </a>
+      <nav class="appnav" aria-label="Student Jarvis">
+        <ul>
+          <li><a href="/health" data-link aria-current="true">Care</a></li>
+          <li><a id="academics-link" href="http://localhost:7070/">Academics</a></li>
+        </ul>
+      </nav>
+      <button type="button" class="btn btn--a11y" id="open-a11y" aria-haspopup="dialog">
+        <svg class="icon" aria-hidden="true"><use href="#i-a11y"/></svg>
+        <span>Accessibility</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <nav class="sidenav" aria-label="Jarvis Care sections">
+      <ul id="sidenav-list">
+        <li><a href="/health" data-link data-route="home"><svg class="icon" aria-hidden="true"><use href="#i-home"/></svg>Overview</a></li>
+        <li><a href="/health/conversation" data-link data-route="conversation"><svg class="icon" aria-hidden="true"><use href="#i-chat"/></svg>Conversation</a></li>
+        <li><a href="/health/care-plan" data-link data-route="care-plan"><svg class="icon" aria-hidden="true"><use href="#i-doc"/></svg>Care plan</a></li>
+        <li><a href="/health/visit-prep" data-link data-route="visit-prep"><svg class="icon" aria-hidden="true"><use href="#i-clipboard"/></svg>Visit prep</a></li>
+        <li><a href="/health/bills" data-link data-route="bills"><svg class="icon" aria-hidden="true"><use href="#i-bill"/></svg>Bills</a></li>
+        <li><a href="/health/appointments" data-link data-route="appointments"><svg class="icon" aria-hidden="true"><use href="#i-calendar"/></svg>Appointments</a></li>
+        <li><a href="/health/timeline" data-link data-route="timeline"><svg class="icon" aria-hidden="true"><use href="#i-timeline"/></svg>Timeline</a></li>
+      </ul>
+    </nav>
+
+    <main id="main" tabindex="-1">
+      <noscript><p class="notice">Jarvis Care needs JavaScript turned on to work.</p></noscript>
+      <div id="view" class="view"></div>
+    </main>
+
+    <aside class="careloop" aria-labelledby="careloop-title">
+      <h2 id="careloop-title" class="careloop__title">Your care loop</h2>
+      <div id="careloop-body"><p class="muted">Nothing planned yet.</p></div>
+    </aside>
+  </div>
+
+  <section class="dock" id="voice-dock" aria-labelledby="dock-title">
+    <h2 id="dock-title" class="visually-hidden">Talk to Jarvis</h2>
+    <div class="dock__inner">
+      <div class="dock__caption" id="dock-caption">
+        <p class="dock__state"><span class="state-dot" id="state-dot" aria-hidden="true"></span><span id="voice-state-label">Ready</span></p>
+        <p class="dock__text" id="dock-caption-text">Say or type what you need. Jarvis answers out loud and on screen.</p>
+      </div>
+      <form class="dock__form" id="voice-form" autocomplete="off">
+        <button type="button" class="btn btn--mic" id="mic-btn">
+          <svg class="icon" aria-hidden="true"><use href="#i-mic"/></svg>
+          <span id="mic-label">Talk</span>
+        </button>
+        <label class="visually-hidden" for="voice-input">Message to Jarvis</label>
+        <input id="voice-input" name="message" type="text" class="input dock__input"
+               placeholder="Type your message…" aria-describedby="voice-hint" enterkeyhint="send">
+        <button type="submit" class="btn btn--primary" id="send-btn">Send</button>
+      </form>
+      <div class="dock__controls" role="group" aria-label="Spoken reply controls">
+        <button type="button" class="btn btn--quiet" id="replay-btn"><svg class="icon" aria-hidden="true"><use href="#i-replay"/></svg>Replay</button>
+        <button type="button" class="btn btn--quiet" id="slower-btn"><svg class="icon" aria-hidden="true"><use href="#i-slow"/></svg>Slower</button>
+        <button type="button" class="btn btn--quiet" id="stop-audio-btn"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop audio</button>
+        <button type="button" class="btn btn--quiet" id="mute-btn" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#i-volume"/></svg><span>Mute replies</span></button>
+      </div>
+      <p id="voice-hint" class="dock__hint"></p>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <p>Jarvis Care helps organize healthcare information and questions. It does not provide medical advice or verify coverage. Confirm important details with your provider or insurer. In an emergency, call 911.</p>
+    <p class="footer__small">Demo data is fictional and labeled. Your Jarvis Care data stays in memory for this session only. <button type="button" class="linklike" id="clear-data">Clear my data</button></p>
+  </footer>
+
+  <!-- One polite live region for short status updates (never streaming transcripts). -->
+  <div id="announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- Accessibility Center -->
+  <dialog id="a11y-dialog" class="dialog" aria-labelledby="a11y-title">
+    <form method="dialog" class="dialog__inner" id="a11y-form">
+      <header class="dialog__head">
+        <h2 id="a11y-title">Accessibility</h2>
+        <button type="submit" class="btn btn--quiet btn--icon" value="close" aria-label="Close accessibility settings">
+          <svg class="icon" aria-hidden="true"><use href="#i-close"/></svg>
+        </button>
+      </header>
+      <p class="muted">Changes apply right away and are saved in this browser. You can also just ask: “make the text bigger” or “speak slower”.</p>
+
+      <fieldset class="field">
+        <legend>Text size</legend>
+        <div class="segmented">
+          <label><input type="radio" name="textScale" value="1"><span>Normal</span></label>
+          <label><input type="radio" name="textScale" value="1.25"><span>Large</span></label>
+          <label><input type="radio" name="textScale" value="1.5"><span>Extra large</span></label>
+          <label><input type="radio" name="textScale" value="2"><span>200%</span></label>
+        </div>
+        <p class="hint">Browser zoom (Ctrl and plus, or Cmd and plus) also works on every page.</p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Display</legend>
+        <div class="segmented">
+          <label><input type="radio" name="theme" value="system"><span>Match device</span></label>
+          <label><input type="radio" name="theme" value="light"><span>Light</span></label>
+          <label><input type="radio" name="theme" value="dark"><span>Dark</span></label>
+        </div>
+        <label class="check"><input type="checkbox" name="highContrast"><span>High contrast</span></label>
+        <label class="check"><input type="checkbox" name="reduceMotion"><span>Reduce motion (also follows your device setting)</span></label>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Spoken replies</legend>
+        <label class="check"><input type="checkbox" name="speechEnabled"><span>Read Jarvis's answers aloud</span></label>
+        <label class="field__row" for="speechRate">Speaking speed <output id="rate-out" for="speechRate">1×</output></label>
+        <input type="range" id="speechRate" name="speechRate" min="0.75" max="1.5" step="0.25" aria-describedby="rate-hint">
+        <p class="hint" id="rate-hint">From 0.75× (slower) to 1.5× (faster).</p>
+        <label class="field__row" for="voiceURI">Voice</label>
+        <select id="voiceURI" name="voiceURI" class="input"><option value="">Default voice</option></select>
+        <div class="btn-row">
+          <button type="button" class="btn" id="test-voice">Test voice</button>
+          <button type="button" class="btn" id="pause-voice">Pause</button>
+          <button type="button" class="btn" id="resume-voice">Resume</button>
+        </div>
+        <p class="hint" id="tts-support"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Talking to Jarvis</legend>
+        <label class="check"><input type="checkbox" name="reviewSpeech"><span>Let me check what I said before it's sent</span></label>
+        <p class="hint" id="stt-support"></p>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>Explanations</legend>
+        <div class="segmented">
+          <label><input type="radio" name="language" value="simple"><span>Simple language</span></label>
+          <label><input type="radio" name="language" value="detailed"><span>More detail</span></label>
+        </div>
+        <label class="field__row" for="locale">Language for speech</label>
+        <select id="locale" name="locale" class="input">
+          <option value="en-US">English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="es-US">Español (EE. UU.) — speech only; text stays in English</option>
+        </select>
+      </fieldset>
+
+      <div class="dialog__foot">
+        <button type="button" class="btn" id="reset-prefs">Reset to defaults</button>
+        <button type="submit" class="btn btn--primary" value="close">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ConsentDialog: every reminder / plan is shown here before anything is saved -->
+  <dialog id="consent-dialog" class="dialog dialog--narrow" aria-labelledby="consent-title" aria-describedby="consent-desc">
+    <form method="dialog" class="dialog__inner" id="consent-form">
+      <header class="dialog__head"><h2 id="consent-title">Please confirm</h2></header>
+      <div id="consent-desc"></div>
+      <div id="consent-fields"></div>
+      <p class="consent__note" id="consent-note"></p>
+      <div class="dialog__foot">
+        <button type="submit" class="btn" value="cancel">Cancel</button>
+        <button type="submit" class="btn btn--primary" value="confirm" id="consent-confirm">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Line icons -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="i-mic" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></g></symbol>
+      <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+      <symbol id="i-replay" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/></g></symbol>
+      <symbol id="i-slow" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l-2.5 2.5M9 2h6"/></g></symbol>
+      <symbol id="i-volume" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/></g></symbol>
+      <symbol id="i-a11y" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="4.5" r="1.8"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5l-3 6M12 14.5l3 6"/></g></symbol>
+      <symbol id="i-home" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-5h4v5"/></g></symbol>
+      <symbol id="i-chat" viewBox="0 0 24 24"><path d="M5 5h14v10H10l-5 4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h5M10 16h5"/></g></symbol>
+      <symbol id="i-clipboard" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="5" y="5" width="14" height="16" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h4"/></g></symbol>
+      <symbol id="i-bill" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></g></symbol>
+      <symbol id="i-calendar" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M9 3v4M15 3v4"/></g></symbol>
+      <symbol id="i-timeline" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><path d="M6 8v8M11 6h9M11 18h9M11 12h6"/></g></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></g></symbol>
+      <symbol id="i-question" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17v.5"/></g></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></g></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+      <symbol id="i-speaker" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6"/></g></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></g></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/></g></symbol>
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></g></symbol>
+    </defs>
+  </svg>
+</body>
+</html>

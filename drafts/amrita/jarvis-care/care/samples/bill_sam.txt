@@ -1,0 +1,12 @@
+DEMO DOCUMENT - FICTIONAL VALUES - NOT A REAL BILL
+Riverside Student Health Center (fictional)
+PATIENT STATEMENT
+Statement date: 11/12/2026
+Patient: Sam Rivera (fictional demo student)
+
+Date of service | Code | Description | Charges | Insurance paid | Adjustments | You owe
+11/10/2026 | 99213 | Office visit, established patient | $180.00 | $96.00 | $54.00 | $30.00
+11/10/2026 | 73610 | X-ray, ankle, 3 views | $140.00 | $72.00 | $33.00 | $35.00
+11/10/2026 | L4361 | Walking boot | $95.00 | $0.00 | $0.00 | $95.00
+
+Total amount due: $160.00

@@ -7,6 +7,7 @@ mcp>=1.20,<2                 # MCP server at /mcp (FastMCP; 2.x renamed the API)
 google-auth>=2.30,<3         # token refresh
 google-auth-oauthlib>=1.2,<2 # one-time login script
 python-docx>=1.1,<2          # save_document -> .docx
+reportlab>=4,<5              # exam prep flashcard PDF
 
 # tests
 pytest>=8,<9

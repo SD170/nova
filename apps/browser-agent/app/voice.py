@@ -8,6 +8,7 @@ Nova speaks every reply aloud, so tool results must be small and already short:
 REST endpoints are unchanged (full data for the UI); only MCP uses these helpers.
 """
 
+import functools
 import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -108,3 +109,15 @@ def speak_item(item, now: datetime | None = None) -> str:
 def speak_courses(courses: list) -> str:
     codes = [short_course(c.code) for c in courses]
     return f"You're taking {join_words(codes)}." if codes else "No current courses found."
+
+
+def demo_label(fn):
+    """Wrap an async MCP tool: if its result says data_source == "demo", Nova says so out
+    loud ("Demo data. ..."), so mock data can never pass for the student's real data."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        out = await fn(*args, **kwargs)
+        if isinstance(out, dict) and out.get("data_source") == "demo" and out.get("speak"):
+            out["speak"] = "Demo data. " + out["speak"]
+        return out
+    return wrapper

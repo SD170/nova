@@ -116,3 +116,18 @@ def test_rule_gist_is_short_and_skips_quotes_and_links():
     g = rule_gist(e)
     assert g.startswith("Review session is Monday at 6pm") and "http" not in g
     assert "quoted" not in g and len(g) <= 180
+
+
+# ---------- demo label ----------
+
+def test_demo_data_is_labeled_out_loud_and_live_data_is_not():
+    import asyncio
+
+    from app.voice import demo_label
+
+    @demo_label
+    async def tool(ds):
+        return {"speak": "5 things due.", "data_source": ds}
+
+    assert asyncio.run(tool("demo"))["speak"] == "Demo data. 5 things due."
+    assert asyncio.run(tool("live"))["speak"] == "5 things due."

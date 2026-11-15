@@ -150,3 +150,44 @@ class CanvasClient:
         data = resp.json()
         return data.get("items", []), {"data_source": data.get("data_source", ""),
                                        "synced_at": data.get("synced_at")}
+
+    # ---- read-only calls used by exam prep (the Canvas service owns the data) ----
+
+    async def _get(self, path: str, params: dict | None = None, timeout: float = 30) -> dict:
+        headers = {"X-Canvas-Key": self.api_key} if self.api_key else {}
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(f"{self.base_url}{path}", headers=headers,
+                                        params=params or {})
+        except httpx.HTTPError as exc:
+            raise CanvasUnavailable(
+                f"Could not reach the Canvas service at {self.base_url} ({exc}). "
+                "Is apps/browser-agent running?") from exc
+        if resp.status_code == 401:
+            raise CanvasUnavailable("The Canvas service rejected our key (CANVAS_API_KEY).")
+        if resp.status_code != 200:
+            try:
+                detail = resp.json().get("detail", "")
+            except ValueError:
+                detail = ""
+            raise CanvasUnavailable(f"Canvas service HTTP {resp.status_code} for {path}: {detail}")
+        return resp.json()
+
+    async def courses(self) -> tuple[list[dict], dict]:
+        data = await self._get("/courses")
+        return data.get("courses", []), {"data_source": data.get("data_source", "")}
+
+    async def materials(self, course_id: str, topic_hint: str | None = None,
+                        this_week: bool = False) -> tuple[list[dict], dict]:
+        params: dict = {"course_id": course_id}
+        if topic_hint:
+            params["topic_hint"] = topic_hint
+        if this_week:
+            params["this_week"] = "true"
+        data = await self._get("/materials", params, timeout=60)
+        return data.get("materials", []), {"data_source": data.get("data_source", "")}
+
+    async def material_text(self, material_id: str, max_chars: int = 12_000) -> dict:
+        """First slice of a material's text (downloaded once, ~6 s for a PDF, then cached)."""
+        return await self._get(f"/materials/{material_id}/text",
+                               {"max_chars": max(1_000, min(max_chars, 200_000))}, timeout=120)

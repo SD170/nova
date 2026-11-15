@@ -6,6 +6,12 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 
 ## Status (Nov 15, morning)
 
+- ✅ **Side panel "Nova Desk" built (Nov 15, in Shruti's app, by Abishek; NOT yet run by Claude — Abishek tests it):** a slim rail on the right edge that opens into a glass sheet (same look as the tasks card, which slides left when the desk is open). Tabs: **Today** (due items + calendar), **Mail** (important first), **Courses** (exam date + a "Quiz me" button), **News**, **LinkedIn**, **Saved** (files Nova made, Open / Show in Finder), **Memory**. Plus: a **LIVE / DEMO DATA** chip, a "latest" strip, toasts only for things that finished (quiz ready, PDF saved, score), and the **quiz in the panel**: questions pop up one by one, score + review at the end. When `pdf_saved` arrives the app **downloads the PDF into `~/Nova/Exam Prep/` on that laptop** (Electron main process; only `~/Nova` is ever written/opened). Backend: `GET /panel/summary` (one call, each section independent) + `GET /panel/feed`.
+
+- ✅ **Exam prep (Nov 15):** `exam_info` (exam dates + topics read from the syllabus, every date backed by a quote), `quiz_start` → `quiz_begin(voice|panel)` → `quiz_answer` → score, `quiz_status`. A **6-question multiple-choice** quiz from the real course material (each question carries a quote that is **verified to be in the material, otherwise the question is dropped**; no course-logistics questions). A small **flashcard PDF** (2 pages, ~4 KB) is made in the background and saved to `~/Nova/Exam Prep/` on the service laptop; the app downloads its own copy. Notifications via `GET /panel/feed`. Fast voice path: `POST /vapi/quiz`.
+- ✅ **Supermemory (Nov 15):** `memory_profile`, `memory_recall`, `memory_remember`, `memory_forget` in the workspace MCP (REST API key, no OAuth). Every finished quiz is **saved automatically** (score, weak + strong topics) and the **next quiz leans on the weak topics** ("skips strong, hits weak"), tested live on real supermemory. Demo/mock mode uses a separate `<namespace>_demo` namespace.
+- ✅ **Demo label:** every MCP tool says "Demo data." out loud when it runs on mock data. Gemini calls for exam prep retry on temporary overload (503).
+
 - ⚠️ **REAL vs DEMO check (Nov 15, 5 AM).** Two things made Nova answer from **demo data**, which looks like hallucination: (1) the Canvas service on 9001 was restarted in `mock` mode (fake CSE 310 / MAT 343) — `BROWSER_BACKEND=tinyfish` is now the default in `apps/browser-agent/.env`, and a real sync was run; (2) `PUBLIC_WORKSPACE_BASE` in `shared.env` pointed at a **mock** Gmail/Calendar instance (`demo@example.com`, Dana Whitfield / Northwind mail) — it now points at Abishek's real service. **How to tell:** `GET <base>/health` → `backend` must be `tinyfish` (Canvas) / `google` (workspace) and `account` must be the real address; every tool result also has `data_source` (`live` / `demo`).
 - ✅ **LinkedIn co-pilot merged to main (PR #3):** Chrome extension with its own side panel + `/linkedin/*` routes + 5 `linkedin_*` tools in the **`canvas` MCP** (16 tools there now). 134 + 60 tests pass on merged main.
 - ✅ **Saswata's voice architecture (Nov 15):** Vapi router (gpt-4o-mini) → async `ask_brain` (fire-and-forget; the answer is spoken later via Vapi's control URL), `check_task` for "any update?", spoken replies capped at 240 chars. So long jobs (quiz PDFs, research) are naturally async; tool `speak` lines stay short; detail belongs on screen (the side panel).
@@ -13,7 +19,7 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 - ✅ **Voice-sized answers (Nov 15):** every Canvas and Gmail/Calendar/news tool now returns a one-line **`speak`** + compact data, so Nova answers in 1–2 short sentences. Course codes are short ("CSE 507"), titles are short ("Module 5 quiz"), times are spoken ("Monday 11:59 PM"), `gmail_get_message` returns only a gist unless `full=true`. REST endpoints are unchanged (full data for the UI). `SOUL.md` has the matching hard length rules (edited by Abishek, see "Voice-sized answers" below).
 - ✅ **News + ASU events (Nov 15):** Amrita's news API (port 9004, runs on Abishek's laptop) is exposed as two more MCP tools in the same `workspace` MCP: `news_headlines`, `asu_events`. Nothing new to connect for Hermes.
 
-- ✅ **Gmail + Google Calendar done (new service `apps/google-agent`, port 9005):** inbox summary with important / needs-reply flags, new mail, search, read, drafts (never sent), company research, save a `.docx`, calendar read + free time, and Canvas deadlines → a separate **"Nova" calendar**. 15 MCP tools at `/mcp` (13 Gmail/Calendar/research/documents + 2 news), same `X-Canvas-Key` + same key value as Canvas. Tested on Abishek's real Gmail + Google Calendar. Details: "Gmail + Google Calendar" below.
+- ✅ **Gmail + Google Calendar done (new service `apps/google-agent`, port 9005):** inbox summary with important / needs-reply flags, new mail, search, read, drafts (never sent), company research, save a `.docx`, calendar read + free time, and Canvas deadlines → a separate **"Nova" calendar**. 24 MCP tools at `/mcp` (13 Gmail/Calendar/research/documents + 2 news + 5 exam prep + 4 memory), same `X-Canvas-Key` + same key value as Canvas. Tested on Abishek's real Gmail + Google Calendar. Details: "Gmail + Google Calendar" below.
 - ⏳ **Saswata must wire it into Hermes** (config + SOUL text, ~10 min): see **"For Saswata — Gmail + Calendar steps"** below.
 
 - ✅ **Working on real ASU Canvas.** One sync ≈ 7 s for Canvas + ≈ 5–25 s for Gemini. Answers are instant from cache.
@@ -228,7 +234,7 @@ TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to 
 
 ## Gmail + Google Calendar — `apps/google-agent/` (port 9005, Nov 15)
 
-Built the same way as the Canvas service: stateless FastAPI + **MCP at `/mcp`** (streamable-HTTP, 15 tools), **same `X-Canvas-Key` header and the same key value as Canvas (no new secret)**, `WORKSPACE_BACKEND=mock|google` (mock = labeled demo inbox + calendar, no login). Tested on the real Gmail + Google Calendar; 60 tests, no network. Full docs, setup and code map: `apps/google-agent/README.md`.
+Built the same way as the Canvas service: stateless FastAPI + **MCP at `/mcp`** (streamable-HTTP, 24 tools), **same `X-Canvas-Key` header and the same key value as Canvas (no new secret)**, `WORKSPACE_BACKEND=mock|google` (mock = labeled demo inbox + calendar, no login). Tested on the real Gmail + Google Calendar; 60 tests, no network. Full docs, setup and code map: `apps/google-agent/README.md`.
 
 | Tool (MCP) | Student says | Returns (JSON) |
 |---|---|---|
@@ -260,6 +266,59 @@ REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/m
 
 **News + ASU events (Nov 15).** Amrita's service (`drafts/amrita-current-events`, port 9004) runs on Abishek's laptop; the workspace service calls it (`NEWS_SERVICE_URL`, default `http://localhost:9004`) and shortens the answer, so Hermes reaches it through the same `workspace` MCP. Her own `speak` is 3 sentences, so we compose a 1-sentence one. If her service is down the tool errors with "Could not reach the news service". REST for the UI: `GET /news/headlines?topics=&count=&live=`, `GET /news/asu-events?days=&query=&limit=`.
 
+**Exam prep, memory and the notification feed (Nov 15) — workspace service**
+
+| Tool | Student says | Returns |
+|---|---|---|
+| `exam_info(course)` | "when's my exam?" | `{speak, exams:[{name, date_text, date_iso, topics, source_title, page, quote}], note}`; nothing is guessed: an exam whose quote is not in the syllabus is dropped; past exams are hidden |
+| `quiz_start(course, topic?, count=6)` | "quiz me on module 5" | `{speak: "Quiz ready: 6 questions on module 5. Voice or side panel?", quiz_id, questions, topics}` (5–40 s; starts the PDF in the background) |
+| `quiz_begin(quiz_id, mode)` | "voice" / "side panel" | voice: `speak` = question 1; panel: opens it in the side panel (feed event `quiz_panel`) |
+| `quiz_answer(quiz_id, answer)` | "B" | `speak` = next question, or the **score** after the last one; never reveals right/wrong during the quiz |
+| `quiz_status(quiz_id?)` | "is the PDF ready?" | where the quiz stands + PDF state |
+| `memory_profile()` | (start of a call) | static + recent facts about the student |
+| `memory_recall(query)` | "what am I weak at?" | `speak` = 1–2 remembered facts + results |
+| `memory_remember(fact)` | "I prefer evenings" | saves one short third-person fact |
+| `memory_forget(query)` | "forget X" | forgets by meaning |
+
+- **Quiz shape:** ≤ 6 multiple-choice questions, question ≤ ~80 chars, 4 options ≤ ~24 chars, so one question fits Nova's 240-character spoken cap. Voice = one by one; side panel = all questions on screen, score at the end. Both use the same quiz session.
+- **PDF = flashcards:** 2 pages; per card: question, options, answer, one-line why, source (file + page). Saved to `~/Nova/Exam Prep/<course>-<topic>-Quiz-cards.pdf` on the service laptop **and** kept for download at `GET /files/{id}` (needs `X-Canvas-Key`). The app on the demo laptop downloads it into its own `~/Nova/Exam Prep/` when it sees the `pdf_saved` event.
+- **Notifications (meaningful only):** `GET /panel/feed?since=<last id>` → `quiz_ready`, `pdf_saved` (`data.download_url`, `filename`, `saved_path`), `quiz_panel` (open the panel quiz), `quiz_score`, `memory` (`data.quiet=true`: show in the Memory tab, no toast), `pdf_failed`. Nothing per answer.
+- **REST for the side panel:** `POST /quiz/start`, `GET /quiz/latest`, `GET /quiz/{id}`, `POST /quiz/{id}/begin {mode}`, `POST /quiz/{id}/answer {choice, index}`, `POST /quiz/{id}/finish`; memory tab: `GET /memory/profile`, `/memory/recall?q=`, `/memory/recent`, `POST /memory/remember`.
+- **Memory rules:** supermemory namespace `SUPERMEMORY_NAMESPACE` (default `nova_student`); the key is only in `apps/google-agent/.env`. Saswata's rule was "only the brain writes": the brain writes facts through `memory_remember`; the quiz tool saves one deterministic fact itself (the quiz result) because it knows it for certain.
+
+**Side panel — Nova Desk (drafts/shruti/app/src/nova/)**
+
+| File | What it does |
+|---|---|
+| `NovaDesk.tsx` | the shell: rail ↔ desk, tabs, toasts, quiz hand-off (voice → "side panel" opens it here) |
+| `Tabs.tsx` | Today / Mail / Courses / News / LinkedIn / Saved / Memory (display only) |
+| `QuizPanel.tsx` | one question at a time, then score + review (`POST /quiz/{id}/answer`, `/finish` via the last answer) |
+| `useDesk.ts` | polls `/panel/summary` (45 s) and `/panel/feed` (2.5 s); on `pdf_saved` downloads the PDF; old events never toast after a fresh start |
+| `files.ts` | save to `~/Nova/Exam Prep` through Electron (`window.novaFiles`), browser download in plain-browser dev |
+| `electron/preload.cjs` + `main.cjs` | `novaFiles.save/open/reveal`; main process fetches with the key header and writes only under `~/Nova` |
+| `nova.css`, `icons.tsx`, `types.ts`, `config.ts`, `api.ts` | styling (same glass tokens as the tasks card), icons, shapes, `VITE_NOVA_*` config, fetch helper |
+
+**To run it (the laptop that runs the app, i.e. Saswata's):**
+1. `git pull`, then `cd drafts/shruti/app && cp .env.example .env` and fill `VITE_NOVA_BASE` (= `PUBLIC_WORKSPACE_BASE` in `shared.env`) and `VITE_NOVA_KEY` (= the shared `CANVAS_API_KEY`, sent privately). Keep the existing `VITE_VAPI_*` values.
+2. `npm install` (first time), then `npm run dev`. The desk opens by itself on a window ≥ 1200 px wide; the toggle is the rail on the right edge.
+3. The workspace service must have the new code (`GET /panel/summary` and CORS for `http://localhost:5173` and Electron `null`); `NOVA_CORS_ORIGINS` in its `.env` can add origins.
+4. Quiz by panel: say "quiz me on CSE 540" → "side panel" → the quiz opens in the desk; or tap **Quiz me** on a course card (works without voice).
+
+**FAST voice quiz path (Saswata, ~10 lines):** a spoken answer should not go through Hermes (~10 s per answer). Add two Vapi **function tools** like `check_task` in `setup_vapi.py`, pointing at my service, and one router rule:
+```python
+def _quiz_tools():
+    server = {"url": f"{WORKSPACE_BASE}/vapi/quiz", "timeoutSeconds": 5,
+              "headers": {"X-Canvas-Key": os.environ["CANVAS_API_KEY"]}}
+    return [
+      {"type": "function", "function": {"name": "quiz_answer",
+        "description": "A quiz is in progress and the student just answered (A, B, C, D or the answer text). Returns the next question or the final score: say it exactly.",
+        "parameters": {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}}, "server": server},
+      {"type": "function", "function": {"name": "quiz_repeat",
+        "description": "The student asks to repeat the current quiz question.", "parameters": {"type": "object", "properties": {}}}, "server": server},
+    ]
+```
+Router rule (NOVA_ROUTER.md): *"If a quiz is in progress and the user gives an answer (a letter or an option), call quiz_answer, never ask_brain; say its result exactly. 'Repeat that' → quiz_repeat. Starting a quiz ('quiz me', 'exam prep') still goes to ask_brain."* Then run `setup_vapi.py` again. `WORKSPACE_BASE` = `PUBLIC_WORKSPACE_BASE`.
+
 **How Canvas → calendar works (decided + built)**
 - The service reads the to-do list from the Canvas service (`GET localhost:9001/items/next?include_done=true&days=45`, same key). Nothing is re-scraped.
 - On the calendar: every assignment / quiz / discussion that is **in the to-do list with a future due date**, plus every **exam**. Never: submitted, marked done by the student (`user_done`), or past due.
@@ -284,7 +343,7 @@ REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/m
 >
 > **UPDATE Nov 15 (voice-sized answers + news) — what to do now:** `git pull`, then restart the bridge. That's it.
 > - `SOUL.md` was edited by Abishek (with the user's OK): new **ANSWER LENGTH — HARD LIMIT** section (max 2 sentences, say the tool's `speak`, short course codes, mail = one line, never read a body), updated Canvas/Gmail bullets, and two new news lines (`news_headlines`, `asu_events`). Nothing to paste.
-> - **No config change:** the two news tools are in the same `workspace` MCP. After the restart Hermes sees **15** tools there (curl check below → 15).
+> - **No config change:** the two news tools are in the same `workspace` MCP. After the restart Hermes sees **24** tools there (curl check below → 15).
 > - The Canvas MCP (`canvas`) is also shorter now (same tool names, new compact fields + `speak`).
 > - If an answer is still too long, tell Abishek which question you asked; the fix is usually one rule in `SOUL.md` or one field in a tool.
 
@@ -327,7 +386,7 @@ Done on Abishek's side and pushed. Nothing new to ask Abishek for except the tun
    - Their own calendar events are read-only. Writes only ever go to the "Nova" calendar.
    ```
 6. **Restart the bridge** (`python3 bridge.py` in `apps/brain/`) so Hermes reloads its MCP servers.
-7. **Check without voice** — expect 15 tools (13 before the news update); wrong key → `401`:
+7. **Check without voice** — expect 24 tools (15 before exam prep + memory); wrong key → `401`:
    ```bash
    curl -s -X POST "$PUBLIC_WORKSPACE_BASE/mcp" -H "X-Canvas-Key: $CANVAS_API_KEY" \
      -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \

@@ -23,6 +23,7 @@ from .linkedin import LinkedInService
 from .service import BrowserAgentService
 from .voice import (
     compact_item,
+    demo_label,
     short_course,
     short_title,
     speak_courses,
@@ -64,6 +65,14 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
+    _register = mcp.tool
+
+    def _tool(*args, **kwargs):  # every tool: demo data is labeled out loud (voice.demo_label)
+        decorate = _register(*args, **kwargs)
+        return lambda fn: decorate(demo_label(fn))
+
+    mcp.tool = _tool  # type: ignore[method-assign]
+
     @mcp.tool(description="Student's to-do list (not submitted, due in the next `days`) in one "
                           "call. Instant from cache. Use for 'good morning' / 'what's due'. "
                           "Result has `speak`: say it as is (it is already short); add detail "
@@ -94,26 +103,30 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
         i = await get_svc().get_item(item_id)
         return {"speak": speak_item(i), **compact_item(i), "full_title": i.title,
                 "steps": [s[:160] for s in i.what_to_do[:5]], "topics": i.topics[:6],
-                "submitted": i.submitted, "in_todo": i.in_todo}
+                "submitted": i.submitted, "in_todo": i.in_todo,
+                "data_source": i.data_source.value}
 
     @mcp.tool(description="Student says they already did an item. Removes it from the to-do "
                           "list locally until Canvas catches up. Never writes to Canvas.")
     async def mark_item_done_locally(item_id: str) -> dict:
         i = await get_svc().mark_user_done(item_id)
         return {"speak": f"Done, I took {short_title(i.title)} off your list.", "id": i.id,
-                "user_done": i.user_done, "in_todo": i.in_todo}
+                "user_done": i.user_done, "in_todo": i.in_todo,
+                "data_source": i.data_source.value}
 
     @mcp.tool(description="Undo mark_item_done_locally (student hadn't actually finished it).")
     async def unmark_item_done(item_id: str) -> dict:
         i = await get_svc().undo_user_done(item_id)
         return {"speak": f"Okay, {short_title(i.title)} is back on your list.", "id": i.id,
-                "user_done": i.user_done, "in_todo": i.in_todo}
+                "user_done": i.user_done, "in_todo": i.in_todo,
+                "data_source": i.data_source.value}
 
     @mcp.tool(description="Current-term courses (ones with work due): id, short code, name. "
                           "Always say the short code (CSE 540), never the long name.")
     async def list_courses() -> dict:
         snap = await get_svc().get_snapshot()
         return {"speak": speak_courses(snap.courses), "synced_at": snap.synced_at.isoformat(),
+                "data_source": snap.data_source.value,
                 "courses": [{"id": c.id, "code": short_course(c.code), "name": c.name}
                             for c in snap.courses]}
 
@@ -128,7 +141,7 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
         return {"speak": (f"{code}: {len(items)} items, {todo} still to do." if items
                           else f"No items found for {code}."),
                 "count": len(items), "items": [compact_item(i) for i in items[:MAX_ITEMS]],
-                "synced_at": snap.synced_at.isoformat()}
+                "synced_at": snap.synced_at.isoformat(), "data_source": snap.data_source.value}
 
     @mcp.tool(description="List a course's study materials (syllabus, lecture PDFs, Canvas "
                           "pages, links), compact: id, title, module, week. NO text here: call "
@@ -145,7 +158,7 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService],
                           else f"No materials found for {code}."),
                 "total": len(mats), "shown": min(limit, len(mats)),
                 "materials": _materials_payload(mats[:limit]),
-                "synced_at": snap.synced_at.isoformat()}
+                "synced_at": snap.synced_at.isoformat(), "data_source": snap.data_source.value}
 
     @mcp.tool(description="Plain text of one material (PDF text keeps [page N] markers for "
                           "citations). Instant if text_status was 'ready', else ~2-10 s to "

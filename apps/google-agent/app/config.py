@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     data_dir: Path = APP_ROOT / "data"
     timezone: str = "America/Phoenix"
     nova_calendar_name: str = "Nova"
+    # Exam-prep PDFs are also saved here on the laptop running this service. The app on the
+    # demo laptop downloads its own copy into its own ~/Nova/Exam Prep.
+    nova_exam_dir: Path = Path("~/Nova/Exam Prep")
     auto_sync_minutes: float = 20
 
     gemini_api_key: str = ""
@@ -43,18 +46,26 @@ class Settings(BaseSettings):
 
     tinyfish_api_key: str = ""
 
+    # Browsers/Electron that may call this service (the side panel). "null" = Electron file://
+    nova_cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173", "http://127.0.0.1:5173", "null"]
+
+    # Supermemory (long-term memory). Key: console.supermemory.ai -> API keys. One namespace per student.
+    supermemory_api_key: str = ""
+    supermemory_namespace: str = "nova_student"
+    supermemory_base_url: str = "https://api.supermemory.ai"
+
     # Amrita's news service (drafts/amrita-current-events), runs on this laptop
     news_service_url: str = "http://localhost:9004"
     news_api_key: str = ""   # only if her NEWS_AGENT_API_KEY is set (sent as X-Jarvis-Key)
 
-    @field_validator("gemini_fallback_models", mode="before")
+    @field_validator("gemini_fallback_models", "nova_cors_origins", mode="before")
     @classmethod
     def _split(cls, v):
         if isinstance(v, str):
             return [x.strip() for x in v.split(",") if x.strip()]
         return v
 
-    @field_validator("data_dir")
+    @field_validator("data_dir", "nova_exam_dir")
     @classmethod
     def _expand_home(cls, v: Path) -> Path:
         return Path(v).expanduser()
@@ -78,6 +89,18 @@ class Settings(BaseSettings):
     @property
     def gist_cache_path(self) -> Path:
         return self.data_dir / "gist_cache.json"
+
+    @property
+    def quizzes_dir(self) -> Path:
+        return self.data_dir / "quizzes"
+
+    @property
+    def feed_path(self) -> Path:
+        return self.data_dir / "feed.json"
+
+    @property
+    def exam_cache_path(self) -> Path:
+        return self.data_dir / "exam_info.json"
 
     @property
     def files_dir(self) -> Path:

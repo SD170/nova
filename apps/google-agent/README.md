@@ -138,7 +138,14 @@ Auth: if `CANVAS_API_KEY` is set, send `X-Canvas-Key` on everything except `/hea
 | `GET /files/{id}` | download a saved document |
 | `GET /news/headlines?topics=&count=&live=` | compact stories from Amrita's service (port 9004) |
 | `GET /news/asu-events?days=&query=&limit=` | compact ASU events |
-| `POST /mcp` | MCP streamable-HTTP, 15 tools |
+| `POST /exam/info` `{course}` | exam dates + topics from the syllabus (quote-verified) |
+| `POST /quiz/start` `{course, topic?, count}` | grounded ≤6-question multiple-choice quiz (+ flashcard PDF in the background) |
+| `GET /quiz/latest`, `GET /quiz/{id}`, `POST /quiz/{id}/begin`, `/answer`, `/finish` | quiz session (voice or panel) |
+| `POST /vapi/quiz` | fast Vapi function tool: `quiz_answer`, `quiz_repeat` |
+| `GET /panel/summary` | everything the side panel shows, one call (today, mail, courses, news, linkedin, memory, saved, quiz), each section independent |
+| `GET /panel/feed?since=` | meaningful notifications (quiz ready, PDF saved, score) |
+| `GET /memory/profile`, `/memory/recall?q=`, `/memory/recent`, `POST /memory/remember` | supermemory |
+| `POST /mcp` | MCP streamable-HTTP, 24 tools |
 
 Errors: `401` bad key · `404 message_not_found` / `document_not_found` · `422 bad_request` ·
 `502 canvas_unavailable` (Canvas service down) · `503 google_login_expired` / `research_unavailable`.
@@ -147,14 +154,19 @@ Errors: `401` bad key · `404 message_not_found` / `document_not_found` · `422 
 
 `CANVAS_API_KEY`, `WORKSPACE_BACKEND` (mock|google), `CANVAS_SERVICE_URL`, `PUBLIC_WORKSPACE_BASE`, `TIMEZONE`,
 `NOVA_CALENDAR_NAME`, `AUTO_SYNC_MINUTES`, `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS`,
-`TINYFISH_API_KEY`, `NEWS_SERVICE_URL` (default `http://localhost:9004`, Amrita's news service), `NEWS_API_KEY` (only if hers has a key).
+`TINYFISH_API_KEY`, `SUPERMEMORY_API_KEY` / `SUPERMEMORY_NAMESPACE`, `NOVA_EXAM_DIR` (default `~/Nova/Exam Prep`), `NEWS_SERVICE_URL` (default `http://localhost:9004`, Amrita's news service), `NEWS_API_KEY` (only if hers has a key).
 
 ## Code map
 
 ```
 app/
   main.py            REST routes, error mapping, mounts /mcp with the key guard
-  mcp_server.py      15 MCP tools + KeyGuard
+  mcp_server.py      24 MCP tools + KeyGuard
+  exam.py            exam facts, grounded quiz, quiz session, flashcard PDF job
+  pdfgen.py          the 2-page flashcard PDF (reportlab)
+  panel.py           GET /panel/summary for the side panel
+  feed.py            notification feed (quiz ready, PDF saved, score)
+  memory.py          supermemory client, quiz-result fact, weak-topic lookup
   service.py         all logic (inbox, new mail, drafts, calendar, Canvas sync, auto sync, research, docs)
   classify.py        email category / important / needs-reply: rules + Gemini (cached per message id)
   canvas_sync.py     Canvas item -> calendar event rules, diff (create/update/delete/keep), Canvas client

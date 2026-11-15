@@ -1,7 +1,8 @@
 // Electron main process — opens the Nova window.
-const { app, BrowserWindow, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, ipcMain, session, shell, systemPreferences } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const os = require('os')
 
 const DEV_URL = process.env.ELECTRON_START_URL // set by `npm run dev`
 // Dev aids (env vars, nothing on the page):
@@ -10,6 +11,30 @@ const DEV_URL = process.env.ELECTRON_START_URL // set by `npm run dev`
 //   JARVIS_SCREENSHOT=out.png capture the window after load, then quit
 const SCREENSHOT = process.env.JARVIS_SCREENSHOT
 const PAGE_JS = process.env.JARVIS_PAGE_JS
+
+// ── Nova Desk: files Nova makes (the exam-prep PDF) are saved on THIS laptop under ~/Nova.
+// Only ~/Nova is ever written or opened, and only http(s) downloads are allowed.
+const NOVA_DIR = path.join(os.homedir(), 'Nova')
+const insideNova = (p) => typeof p === 'string' && path.resolve(p).startsWith(NOVA_DIR + path.sep)
+
+ipcMain.handle('nova:save-file', async (_e, { url, filename, headers, folder }) => {
+  if (!/^https?:\/\//.test(String(url))) throw new Error('Only http(s) downloads are allowed')
+  const dir = path.join(NOVA_DIR, folder === 'exam' ? 'Exam Prep' : 'Saved')
+  fs.mkdirSync(dir, { recursive: true })
+  const res = await fetch(url, { headers: headers || {} })
+  if (!res.ok) throw new Error(`Download failed (HTTP ${res.status})`)
+  const data = Buffer.from(await res.arrayBuffer())
+  const safe = path.basename(String(filename || 'nova-file')).replace(/[^\w.\- ()]/g, '_')
+  const target = path.join(dir, safe)
+  fs.writeFileSync(target, data)
+  return { path: target, bytes: data.length }
+})
+ipcMain.handle('nova:reveal', (_e, p) => {
+  if (insideNova(p)) shell.showItemInFolder(p)
+})
+ipcMain.handle('nova:open', async (_e, p) => {
+  if (insideNova(p)) await shell.openPath(p)
+})
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -26,6 +51,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      preload: path.join(__dirname, 'preload.cjs'), // window.novaFiles (save / open / reveal under ~/Nova)
       backgroundThrottling: false, // keep voice + animation running when the window isn't focused
     },
   })

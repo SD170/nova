@@ -156,9 +156,9 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
             const text: string = (r.result ?? r.message ?? '').toString()
             let taskId = toolCallToTaskId[toolCallId]
 
-            // 'Started task tNNN: <q>' — just-dispatched ack; row already added
-            // above on tool-calls; nothing to do. Keep the map entry.
-            if (/^Started task t\d+:/i.test(text)) continue
+            // '[queued:tNNN]' — just-dispatched internal ack. Row already
+            // added above on tool-calls; nothing to do. Keep the map entry.
+            if (/^\[queued:t\d+\]/i.test(text)) continue
 
             // 'That '<q>' just finished: <reply>' — check_task delivers the done result
             const doneMatch = text.match(/just finished:\s*(.+)$/i)

@@ -142,7 +142,12 @@ export default function App() {
       if (presence.mode === 'dissolving' || presence.mode === 'dissolved') return presence.wake()
       if (presence.busy) return // waking up — ignore until awake
       if (vapiReady.current) {
-        getVapi()?.setMuted(false)
+        const v = getVapi()
+        // SPACE is also the panic-interrupt key: if Nova is mid-sentence,
+        // cut her off instantly (control-channel 'mute-assistant') before
+        // unmuting the mic so the user can talk.
+        v?.interrupt()
+        v?.setMuted(false)
         // avatar state is driven by Vapi's own speech-update events via voiceBridge
       } else {
         ptt.start()

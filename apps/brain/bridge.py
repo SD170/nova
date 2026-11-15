@@ -600,8 +600,11 @@ async def ask_brain(request: Request):
             )
             results.append({
                 "toolCallId": tc_id,
-                "result": f"Started task {task['id']}: {question[:60]}. "
-                           "I'll speak the answer when ready.",
+                # Internal ack. NOT meant to be spoken verbatim — the router
+                # already said its own bridge line before firing the tool.
+                # This string is kept short + factual so if the model DOES
+                # leak it, it sounds like a status line, not a filler.
+                "result": f"[queued:{task['id']}]",
             })
 
     return JSONResponse({"results": results})

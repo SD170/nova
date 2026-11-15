@@ -19,6 +19,7 @@ export type VapiHandle = {
   start: () => Promise<void>
   stop: () => void
   setMuted: (m: boolean) => void
+  interrupt: () => void
   isActive: () => boolean
   unbind: () => void
 }
@@ -112,6 +113,22 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
         }
       } catch (e) {
         console.warn('[vapi] setMuted failed', e)
+      }
+    },
+    interrupt() {
+      // Instant barge-in from the client. Uses Vapi's control-channel
+      // 'mute-assistant' — stops in-flight TTS immediately. We don't
+      // leave the assistant muted (that'd silence subsequent replies);
+      // a short unmute follows so the next utterance plays normally.
+      try {
+        ;(vapi as any).send({ type: 'control', control: 'mute-assistant' })
+        setTimeout(() => {
+          try {
+            ;(vapi as any).send({ type: 'control', control: 'unmute-assistant' })
+          } catch {/* ignore */}
+        }, 120)
+      } catch (e) {
+        console.warn('[vapi] interrupt failed', e)
       }
     },
     isActive: () => active,

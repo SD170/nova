@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Nova credential verifier</title>
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --panel: #11141c;
+      --panel-2: #161a24;
+      --border: #22283a;
+      --text: #e6e9f2;
+      --muted: #98a0b5;
+      --ok: #3bd77a;
+      --bad: #ff4f6d;
+      --accent: #8aa6ff;
+      --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 16px;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    .wrap { max-width: 880px; margin: 0 auto; }
+    .banner {
+      display: flex; align-items: center; gap: 16px;
+      padding: 20px 24px; border-radius: 14px; margin-bottom: 20px;
+      font-size: 20px; font-weight: 600;
+      border: 1px solid var(--border);
+      background: linear-gradient(145deg, var(--panel) 0%, var(--panel-2) 100%);
+    }
+    .banner .dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 10px rgba(255,255,255,0.1);
+    }
+    .banner.ok   { border-color: rgba(59,215,122,0.35); }
+    .banner.ok .dot   { background: var(--ok);  box-shadow: 0 0 14px var(--ok); }
+    .banner.bad  { border-color: rgba(255,79,109,0.35); }
+    .banner.bad .dot  { background: var(--bad); box-shadow: 0 0 14px var(--bad); }
+    .banner small { color: var(--muted); font-weight: 400; font-size: 13px; margin-left: auto; }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px 24px; margin-bottom: 18px;
+    }
+    .card h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: 1px;
+               color: var(--muted); text-transform: uppercase; font-weight: 500; }
+    .meta { display: grid; grid-template-columns: 160px 1fr; gap: 6px 14px; font-size: 14px; }
+    .meta dt { color: var(--muted); }
+    .meta dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+
+    .screenshot {
+      width: 100%; max-height: 420px; object-fit: contain;
+      background: #000; border-radius: 10px; display: block;
+    }
+    .screenshot-empty {
+      text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px;
+    }
+
+    textarea.json {
+      width: 100%; min-height: 240px; resize: vertical;
+      background: #090b11; color: var(--text);
+      border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+      font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    }
+    textarea.json:disabled { opacity: 0.85; }
+
+    .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13.5px; }
+    .row .label { color: var(--muted); min-width: 170px; }
+    .row .value {
+      font-family: var(--mono); word-break: break-all; flex: 1;
+      padding: 6px 10px; border-radius: 6px; background: #090b11; border: 1px solid var(--border);
+    }
+    .row .value.ok   { border-color: rgba(59,215,122,0.45); color: var(--ok); }
+    .row .value.bad  { border-color: rgba(255,79,109,0.45); color: var(--bad); }
+    .row .badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .badge.ok   { background: rgba(59,215,122,0.15); color: var(--ok); }
+    .badge.bad  { background: rgba(255,79,109,0.15); color: var(--bad); }
+
+    .actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    button, .btn {
+      background: var(--panel-2); color: var(--text);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 8px 14px; font: inherit; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+    }
+    button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+    button.danger { color: var(--bad); border-color: rgba(255,79,109,0.35); }
+    button.danger:hover { color: var(--bad); border-color: var(--bad); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
+    code { font-family: var(--mono); background: #090b11; padding: 1px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="banner" class="banner">
+      <span class="dot"></span>
+      <span id="banner-text">Verifying…</span>
+      <small id="banner-sub"></small>
+    </div>
+
+    <div class="card">
+      <h2>Credential</h2>
+      <dl class="meta" id="meta">
+        <dt>ID</dt><dd id="m-id">—</dd>
+        <dt>Issued</dt><dd id="m-issued">—</dd>
+        <dt>Issuer pubkey</dt><dd id="m-issuer">—</dd>
+        <dt>Source</dt><dd id="m-source">—</dd>
+        <dt>Solana tx</dt><dd id="m-tx">—</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h2>Witness screenshot</h2>
+      <img id="shot" class="screenshot" alt="" style="display:none" />
+      <div id="shot-empty" class="screenshot-empty">no screenshot attached</div>
+    </div>
+
+    <div class="card">
+      <h2>Signed payload <small style="color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400">— click Tamper to edit and watch the proof break</small></h2>
+      <textarea id="json" class="json" disabled spellcheck="false"></textarea>
+
+      <div class="row">
+        <span class="label">Hash in Solana memo</span>
+        <span id="anchor-hash" class="value">—</span>
+      </div>
+      <div class="row">
+        <span class="label">Hash recomputed now</span>
+        <span id="live-hash" class="value">—</span>
+        <span id="hash-badge" class="badge">…</span>
+      </div>
+      <div class="row">
+        <span class="label">Signature valid?</span>
+        <span id="sig-value" class="value">—</span>
+        <span id="sig-badge" class="badge">…</span>
+      </div>
+
+      <div class="actions">
+        <button id="tamper-btn">✏ Tamper</button>
+        <button id="reset-btn" class="danger" disabled>↺ Reset</button>
+        <a id="explorer" class="btn" target="_blank" rel="noopener">⎋ Solana Explorer</a>
+      </div>
+    </div>
+
+    <div class="footer">
+      <code>nova-cred/v1</code> · hash + signature verified entirely in this browser
+    </div>
+  </div>
+
+  <script src="/static/verify.js"></script>
+</body>
+</html>

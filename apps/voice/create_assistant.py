@@ -32,7 +32,7 @@ if not VAPI_KEY:
 
 VAPI_BASE = "https://api.vapi.ai"
 HEADERS = {"Authorization": f"Bearer {VAPI_KEY}", "Content-Type": "application/json"}
-ASSISTANT_NAME = "Student Jarvis"
+ASSISTANT_NAME = "Shruti"
 
 
 def tool_spec(webhook_url: str) -> list[dict]:

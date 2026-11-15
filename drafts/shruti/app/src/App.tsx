@@ -66,7 +66,12 @@ export default function App() {
       devAudio.current?.pause() // barge-in
       avatarRef.current?.setState('listening')
     }
-    ptt.onRelease = () => avatarRef.current?.setState('thinking')
+    // Only flip into 'thinking' when there IS a pending task. Otherwise stay
+    // 'idle' — a thinking animation with no task on the queue is confusing.
+    ptt.onRelease = () => {
+      const pending = window.jarvisTasks?.getTasks().some((t) => t.status === 'running' || t.status === 'queued')
+      avatarRef.current?.setState(pending ? 'thinking' : 'idle')
+    }
     ptt.onEnd = (blob, ms) => {
       window.dispatchEvent(new CustomEvent('jarvis:user-speech-end', { detail: { blob, durationMs: ms } }))
       if (handlers.current.size) handlers.current.forEach((h) => h(blob, ms))

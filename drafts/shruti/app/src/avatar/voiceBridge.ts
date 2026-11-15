@@ -25,6 +25,13 @@
 // Vapi call from this app.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Avatar3DHandle } from './Avatar3D'
+import {
+  addTask,
+  completeTask,
+  failTask,
+  getTasks,
+  type TaskType,
+} from '../tasks/tasks'
 
 export function createVoiceHooks(avatar: Pick<Avatar3DHandle, 'setState'>) {
   let userTalking = false
@@ -85,6 +92,22 @@ interface VapiLike {
 
 export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
   const hooks = createVoiceHooks(avatar)
+  // Vapi tool-call id → our task-store id. Lets us complete the right row when
+  // the async brain finishes (bridge sends 'Started task tNNN:' on dispatch).
+  const toolCallToTaskId: Record<string, string> = {}
+
+  // Classify question → task type for the UI pill icon. Cheap heuristics.
+  const classify = (q: string): TaskType => {
+    const s = q.toLowerCase()
+    if (/\b(email|inbox|mail|gmail|reply|draft)\b/.test(s)) return 'email'
+    if (/\b(calendar|schedule|event|free|study block|meeting)\b/.test(s)) return 'calendar'
+    if (/\b(canvas|assignment|hw|homework|exam|quiz|due|grade|course|class|syllab)\b/.test(s)) return 'canvas'
+    if (/\b(news|research|company|about [A-Z]|headline)\b/.test(s)) return 'web'
+    return 'other'
+  }
+
+  const titleOf = (q: string) => (q.length > 48 ? q.slice(0, 48).trimEnd() + '…' : q)
+
   const handlers: [string, (...a: any[]) => void][] = [
     ['speech-start', () => hooks.assistantSpeechStart()], // Vapi: assistant started talking
     ['speech-end', () => hooks.assistantSpeechEnd()],
@@ -103,8 +126,68 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
           hooks.userSpeechEnd()
         } else if (m?.type === 'tool-calls' || m?.type === 'function-call') {
           hooks.toolCallStart()
+          // Vapi emits an array of tool-calls on 'tool-calls', or one on 'function-call'.
+          const calls = m.toolCalls ?? m.toolCallList ?? (m.functionCall ? [m.functionCall] : [])
+          for (const c of calls) {
+            const name = c.function?.name ?? c.name
+            if (name !== 'ask_brain') continue
+            const argsRaw = c.function?.arguments ?? c.arguments ?? {}
+            const args = typeof argsRaw === 'string' ? safeJson(argsRaw) : argsRaw
+            const q = (args?.question ?? '').toString()
+            if (!q) continue
+            const toolCallId = c.id ?? c.toolCallId ?? ''
+            const taskId = addTask({
+              type: classify(q),
+              title: titleOf(q),
+              status: 'running',
+            })
+            if (toolCallId) toolCallToTaskId[toolCallId] = taskId
+          }
         } else if (m?.type === 'tool-calls-result' || m?.type === 'function-call-result') {
           hooks.toolCallEnd()
+          // Match the result envelope back to our task row, extract either the
+          // brain's final text or the registry status, and update the UI card.
+          const resultCalls = m.toolCallList ?? m.toolCalls ?? m.toolCallResults ??
+            (m.functionCallResult ? [m.functionCallResult] : [])
+          for (const r of resultCalls) {
+            const toolCallId = r.toolCallId ?? r.id ?? ''
+            const text: string = (r.result ?? r.message ?? '').toString()
+            let taskId = toolCallToTaskId[toolCallId]
+
+            // 'Started task tNNN: <q>' — just-dispatched ack; row already added
+            // above on tool-calls; nothing to do. Keep the map entry.
+            if (/^Started task t\d+:/i.test(text)) continue
+
+            // 'That '<q>' just finished: <reply>' — check_task delivers the done result
+            const doneMatch = text.match(/just finished:\s*(.+)$/i)
+            if (doneMatch) {
+              // find by title substring if we don't have the id mapped
+              if (!taskId) {
+                const titleMatch = text.match(/That '([^']+)' just finished/)
+                const title = titleMatch?.[1] ?? ''
+                const hit = getTasks().slice().reverse().find(
+                  (t) => t.status === 'running' && t.title.startsWith(title),
+                )
+                if (hit) taskId = hit.id
+              }
+              if (taskId) completeTask(taskId, { summary: doneMatch[1].slice(0, 220) })
+              continue
+            }
+
+            // 'Still on '<q>' — Ns in.' — running update
+            if (/^Still on /.test(text)) {
+              // nothing to change; UI already shows 'running'
+              continue
+            }
+
+            // 'No active tasks.' — nothing to do
+            if (/^No active tasks/i.test(text)) continue
+
+            // Hard failure
+            if (/snag|error|couldn't reach|failed/i.test(text) && taskId) {
+              failTask(taskId, text.slice(0, 220))
+            }
+          }
         }
       },
     ],
@@ -113,4 +196,8 @@ export function bindVapi(vapi: VapiLike, avatar: Avatar3DHandle) {
   return () => {
     for (const [e, fn] of handlers) (vapi.removeListener ?? vapi.off)?.call(vapi, e, fn)
   }
+}
+
+function safeJson(s: string): any {
+  try { return JSON.parse(s) } catch { return null }
 }

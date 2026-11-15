@@ -30,12 +30,32 @@ export function TaskPanel() {
   const [open, setOpen] = useState(false)
   const [bump, setBump] = useState(0) // re-triggers the "count ticked up" glow
   const prevCount = useRef(tasks.length)
+  // While true, the drawer was auto-opened by a newly-added task. User
+  // interacting cancels the auto-close.
+  const peekTimer = useRef<number | null>(null)
+  const userToggled = useRef(false)
 
   useEffect(() => {
-    if (tasks.length > prevCount.current) setBump((b) => b + 1)
+    if (tasks.length > prevCount.current) {
+      setBump((b) => b + 1)
+      // New task → pop the drawer open as a notification; auto-close after 3s
+      // unless the user interacts.
+      userToggled.current = false
+      setOpen(true)
+      if (peekTimer.current != null) window.clearTimeout(peekTimer.current)
+      peekTimer.current = window.setTimeout(() => {
+        if (!userToggled.current) setOpen(false)
+        peekTimer.current = null
+      }, 3000)
+    }
     prevCount.current = tasks.length
     if (tasks.length === 0) setOpen(false)
   }, [tasks.length])
+
+  // cleanup on unmount
+  useEffect(() => () => {
+    if (peekTimer.current != null) window.clearTimeout(peekTimer.current)
+  }, [])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
@@ -52,23 +72,23 @@ export function TaskPanel() {
       <button
         className={`glass glass--depth task-head ${n === 0 ? 'task-head--empty' : ''} ${open ? 'task-head--open' : ''}`}
         {...tilt}
-        onClick={() => n > 0 && setOpen((o) => !o)}
+        onClick={() => {
+          if (n === 0) return
+          userToggled.current = true // cancel the auto-peek close
+          setOpen((o) => !o)
+        }}
         onMouseDown={noFocus}
         tabIndex={-1}
         aria-expanded={open}
       >
         <span className="glass-sweep" />
         <span className={`task-dot ${anyRunning ? 'task-dot--live' : ''}`} />
-        {n === 0 ? (
-          <span>No active tasks</span>
-        ) : (
-          <span>
-            <span key={bump} className={bump ? 'task-count task-count--bump' : 'task-count'}>
-              {n}
-            </span>{' '}
-            {n === 1 ? 'task' : 'tasks'}
-          </span>
-        )}
+        <span>
+          <span key={bump} className={bump ? 'task-count task-count--bump' : 'task-count'}>
+            {n}
+          </span>{' '}
+          {n === 1 ? 'task' : 'tasks'}
+        </span>
         {n > 0 && <Chevron open={open} />}
       </button>
 

@@ -5,6 +5,16 @@ export function Hint({ visible }: { visible: boolean }) {
   return <div className={`hint ${visible ? '' : 'hint--hidden'}`}>Hold SPACE to talk</div>
 }
 
+/** Big top-center badge while SPACE is held — so the user knows mic is open. */
+export function ListeningBadge({ visible }: { visible: boolean }) {
+  return (
+    <div className={`listening-badge ${visible ? '' : 'listening-badge--hidden'}`}>
+      <span className="listening-badge__dot" />
+      Listening
+    </div>
+  )
+}
+
 /** Hidden debug panel (press D): force each state for testing. Off by default. */
 export function DevPanel({
   state,

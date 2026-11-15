@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar3D, type Avatar3DHandle, type AvatarState } from './avatar/Avatar3D'
 import { installTestKeys } from './avatar/testKeys'
 import { bindVapi, createVoiceHooks } from './avatar/voiceBridge'
-import { DevPanel, Hint } from './ui/Controls'
+import { DevPanel, Hint, ListeningBadge } from './ui/Controls'
 import { PushToTalk, type SpeechHandler } from './voice/pushToTalk'
 import { initVapi, getVapi } from './voice/vapiClient'
 
@@ -37,6 +37,7 @@ export default function App() {
   const [state, setState] = useState<AvatarState>('idle')
   const [debugOpen, setDebugOpen] = useState(false) // press D
   const [hintVisible, setHintVisible] = useState(true)
+  const [listening, setListening] = useState(false)
 
   // Dev fallback reply (no backend yet): think briefly, then speak the sample clip.
   const playSample = useCallback(() => {
@@ -119,12 +120,14 @@ export default function App() {
       } else {
         ptt.start()
       }
+      setListening(true)
     }
     const up = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
       e.preventDefault()
       if (vapiReady.current) getVapi()?.setMuted(true)
       else ptt.stop()
+      setListening(false)
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
@@ -157,6 +160,7 @@ export default function App() {
     <div className="fixed inset-0 bg-black">
       <Avatar3D ref={avatarRef} debug={AVATAR_DEBUG} getMicLevel={getMicLevel} />
       <Hint visible={hintVisible} />
+      <ListeningBadge visible={listening} />
       {debugOpen && (
         <DevPanel
           state={state}

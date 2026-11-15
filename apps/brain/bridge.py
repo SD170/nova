@@ -776,7 +776,6 @@ def _vapi_inject_say(call_id: str, content: str) -> bool:
         "type": "say",
         "content": content,
         "endCallAfterSpoken": False,
-        "triggerResponseEnabled": False,
     }).encode()
     req = urllib.request.Request(
         url, data=body,

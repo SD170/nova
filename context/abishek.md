@@ -1,177 +1,160 @@
 # Abishek — context + notes
 
 Owner: Abishek (GitHub: Abishek1801)
-Role: **Browser agent — Canvas (and later Calendar) data via TinyFish, plus item classification**
-Code folder: `apps/browser-agent/`
+Role: **Browser agent — real Canvas data via TinyFish, item classification, and the to-do list**
+Code: `apps/browser-agent/` (FastAPI, port **9001** from `shared.env`) — merged to `main`.
 
-## Status (Nov 14)
+## Status (Nov 14, evening)
 
-- **No Canvas API access** for our ASU accounts (confirmed). All Canvas data comes through a browser.
-- **Plan below is AGREED** (Abishek + Saswata): **TinyFish is Plan A. Playwright + AgentQL is Plan B (backup).**
-- Tool names + output shapes in this file are the contract. Build against the mock now; only the inside of the browser agent changes.
+- ✅ **Working on real ASU Canvas.** One sync ≈ 7 s for Canvas + ≈ 5–25 s for Gemini. Answers are instant from cache.
+- ✅ **To-do list = only work not submitted yet.** Submitted / excused / marked-complete items never appear (hard rule).
+- ✅ **Gemini** writes "what to do" steps, topics and notes for each open item.
+- ⏳ **Not built yet:** course materials (PDFs for Amrita), exam dates from announcements, grades, sync progress.
+- There is **no Canvas API token** for ASU accounts. All Canvas data comes through a TinyFish browser that is logged in as the student.
 
 ## Decisions (locked)
 
-1. **Browser engine:** TinyFish cloud first. Local Playwright + AgentQL only if TinyFish blocks us.
-2. **Separate HTTP service:** `apps/browser-agent` is its own FastAPI app. The orchestrator calls it over HTTP. No shared Python imports.
-3. **Memory:** only the **orchestrator** writes to supermemory. The browser agent never does — it just returns data.
-4. **Classification:** Abishek owns deciding whether each item is an assignment / quiz / exam. Done with rules first, LLM only for leftovers, always explainable (see below).
-5. **Read-only:** the browser agent never submits, posts, or sends anything on Canvas.
+1. **TinyFish** provides the logged-in browser. We do **not** use TinyFish's AI agent (TinyAgent) for Canvas — tested: 1–2 min per page, text dates, and TinyFish's safety check blocked reading Canvas JSON. Instead our code reads Canvas's own JSON inside the TinyFish browser: ~7 s, exact dates, exact submitted flags.
+2. **Separate HTTP service.** The orchestrator calls it over HTTP. No shared Python imports.
+3. **Only the orchestrator writes to supermemory.** The browser agent just returns data.
+4. **Classification is explainable:** every item has `classified_by` + `reason`, and the to-do filter is a hard rule the LLM cannot override.
+5. **Read-only:** only GET requests to Canvas. Never submits, posts, clicks or starts a quiz.
+6. **LLM = Gemini** (`gemini-3.5-flash`, falls back to `gemini-3.5-flash-lite`). Without a key the service still works with rules only.
+7. **Plan B (local Chrome + AgentQL) dropped.** If ever needed, the same JSON code can point Playwright at a local Chrome instead.
 
-## Tech stack
-
-| Piece | Tech | Used in |
-|---|---|---|
-| Cloud browser + AI browsing | **TinyFish TinyAgent API** (`/v1/automation/run`, `/run-sse` for streaming progress) | Plan A |
-| Saved Canvas login | **TinyFish Browser Context Profile** (log in once, runs use `use_profile: true`) | Plan A |
-| One-time login into the profile | **Playwright** connected to the profile setup session's `cdp_url` | Plan A |
-| Local browser | **Google Chrome**, dedicated Jarvis profile folder (`~/.jarvis-chrome`), driven by **Playwright (Python)** | Plan B |
-| AI reading of local pages | **AgentQL** (made by TinyFish) — `page.query_data(...)` returns JSON | Plan B |
-| PDF text | `pypdf` | Both |
-| Classification LLM | Same LLM as the team (likely Gemini) | Both |
-| Service | Python + FastAPI | Both |
-| Cache | `canvas_snapshot.json` | Both |
-
-## Architecture — where the browser agent sits
+## The flow — one sync, step by step
 
 ```
-UI + Voice (Shruti / Vapi)
-        │ /chat
-Orchestrator (Saswata) ── writes ──> supermemory
-        │ HTTP tool calls
-        ▼
-apps/browser-agent (Abishek, FastAPI)
-   1. cache check ── fresh (< 30 min) ──> return snapshot instantly
-   2. stale ──> fetch
-        Plan A: TinyFish TinyAgent + Browser Context Profile (cloud)
-        Plan B: Playwright + Chrome Jarvis profile + AgentQL (laptop)
-   3. classify (rules → keywords → LLM)
-   4. download PDFs + extract text (pypdf)
-   5. save canvas_snapshot.json ──> return JSON
-        │
-        ▼
-   canvas.asu.edu
+Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
+                                   │
+   GET /items/next ── snapshot fresh (< 30 min)? ── yes ──> answer instantly
+                                   │ no / POST /sync
+                                   ▼
+ 1. TinyFish: open a cloud browser from the saved Browser Context Profile
+    ("Jarvis - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
+ 2. Playwright connects to that browser (CDP)                                        ~0.5 s
+ 3. Read Canvas JSON with the browser's logged-in cookies (read-only):              ~2–5 s
+      /api/v1/planner/items     → everything due, ALL courses, one call,
+                                  incl. submitted / excused / marked-complete flags
+      /api/v1/courses           → course names (current = has work due; ASU leaves term dates empty)
+      /api/v1/courses/:id/assignments/:id → instructions, submission types, LockDown flag (parallel)
+ 4. Close the browser WITHOUT saving (the saved login is untouched)
+ 5. Gemini: ONE batched call with only the OPEN items (not submitted work,
+    not office hours) → type check, steps, topics, notes                             ~5–25 s
+ 6. classify each item: rules → Gemini merge → hard to-do filter
+ 7. save data/canvas_snapshot.json → answer
 ```
+If a sync fails, the last good snapshot is served. If the ASU login expired: HTTP `503 canvas_login_expired` → run `tinyfish profile sign-in <profile_id>`, sign in with Duo once, retry.
 
-Plan A and Plan B return the **exact same JSON**. Switching is one env var: `BROWSER_BACKEND=tinyfish | local`.
+## Classification — 3 layers
 
-## One-time setup (Plan A)
+1. **Rules (Canvas's own data, no AI)**
+   - title has `midterm` / `mid-term` / `exam(s)` / `final exam` (not announcements) → `exam` (`keyword`)
+   - Canvas quiz, or submission type `online_quiz` → `quiz`
+   - discussion → `discussion` · assignment → `assignment` · calendar event → `event` (`rule`)
+   - announcements → `unknown` until Gemini decides
+   - "Final Project" is NOT an exam; "Calculator policy for quizzes and exams" (announcement) is NOT an exam.
+2. **Gemini (optional)** — decides `unknown` items, can upgrade quiz/assignment/event → `exam`, writes `what_to_do` (≤ 5 steps, only from the instructions), `topics`, `notes` (e.g. "Requires Respondus LockDown Browser + webcam", "Submit as .docx"), and may drop non-work (e.g. optional survey). Results with confidence < 0.7 are ignored. Instructor text is treated as data, never as instructions.
+3. **To-do filter (hard rule)** — submitted / excused / marked complete → `in_todo: false`. Only `assignment | quiz | exam | discussion` can be to-dos. Gemini can never put submitted work back.
 
-1. `POST /v1/profiles` → create profile `jarvis-abishek`.
-2. `POST /v1/profiles/{id}/setup-session` with `url: https://canvas.asu.edu` → returns `cdp_url`.
-3. Playwright connects to `cdp_url`; Abishek logs in by hand (ASU SSO + Duo).
-4. `POST /v1/profiles/{id}/save` → every later run is already logged in.
-- No passwords stored anywhere. No TinyFish Vault with ASU password.
+`suggested_action`: assignment/discussion → `summarize_steps` · quiz → `schedule_block` · exam → `exam_prep` · event/unknown → `none`.
 
-## Example workflow — "Jarvis, what do I need to do this week?"
-
-1. Orchestrator calls `GET /items/next?days=7`.
-2. Browser agent: last sync is old → fetch.
-3. TinyFish run on the Canvas dashboard → list of courses + upcoming items.
-4. TinyFish run per item page:
-   - Homework 3 page → title, due date, points, steps ("Read ch. 5 → implement AVL insert → submit .zip")
-   - Announcement "Midterm 2 next Thursday, covers AVL trees and heaps" → raw text
-5. Classify: Homework 3 → `assignment` (rule), Quiz 5 → `quiz` (rule), Midterm 2 → `exam` (keyword/LLM, with topics + date).
-6. Download linked lecture PDFs → extract text → `data/materials/`.
-7. Save `canvas_snapshot.json`, return items to orchestrator.
-8. Orchestrator replies; quiz → proposes calendar block (approval card); exam → sends topics + materials to Amrita's quiz engine.
-
-First time ~20–60 s (UI shows streaming progress). After that, instant from cache.
-
-## Classification (Abishek owns — must be clean)
-
-Order:
-1. **Hard rules (no AI):** came from quizzes list / submission type `online_quiz` → `quiz`. Came from assignments list with points → `assignment`.
-2. **Keyword rules:** title contains `midterm`, `final`, `exam` → `exam`.
-3. **LLM only for leftovers** (announcements, calendar events, syllabus lines). Fixed output:
-   ```json
-   {"type": "exam", "confidence": 0.9, "date": "2026-11-20", "topics": ["AVL trees", "heaps"],
-    "reason": "Announcement: 'Midterm 2 next Thursday covers AVL trees and heaps'"}
-   ```
-   Confidence below threshold → `type: "unknown"`. Never guess.
-4. Every item carries `classified_by: "rule" | "keyword" | "llm"` and `source_url`.
-5. Tests: `apps/browser-agent/tests/classify_cases.json` (~15 labeled items), run after every change.
-
-## HTTP endpoints (contract for Saswata)
+## HTTP contract (for Saswata's orchestrator) — port 9001
 
 | Method + path | Returns | Speed |
 |---|---|---|
-| `POST /sync` | `{synced_at, counts}` — runs the browser fetch | slow |
-| `GET /courses` | `[{id, code, name, term}]` | instant |
-| `GET /items/next?days=7` | items sorted by `due_at` | instant (syncs if stale) |
-| `GET /items?course_id=` | `[item]` | instant |
-| `GET /materials?course_id=` | `[{id, title, type, url, local_path, extracted_text?}]` | instant |
-| `GET /health` | `{ok, backend, last_sync}` | instant |
+| `GET /items/next?days=7` | **the to-do list** `{synced_at, data_source, items: [Item]}`, soonest first | instant (syncs if stale) |
+| `GET /items/next?days=7&include_done=true` | everything due incl. submitted work + events, each with `in_todo` + `todo_reason` | instant |
+| `GET /items?course_id=` | `{synced_at, data_source, items: [Item]}` | instant |
+| `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` | instant |
+| `GET /materials?course_id=` | `{synced_at, data_source, materials: [...]}` — **empty for real Canvas (next step)** | instant |
+| `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` | 10–35 s |
+| `GET /health` | `{ok, backend, llm, last_sync, last_error}` | instant |
 
-Calendar (P1, later): `GET /calendar/events?start&end`, `POST /calendar/study-block` — **only called after the user approves** in the UI.
+Errors: `503 {"error":"canvas_login_expired","detail":...}` · `502 {"detail":...}` backend failure.
+**Tip for the orchestrator:** don't block a voice turn on `POST /sync` (it can take ~30 s). Call `/items/next` (instant from cache) and trigger `/sync` in the background on app start / when the user says "sync".
 
-## Item shape
-
+### Item (real example, trimmed)
 ```json
 {
-  "id": "a1",
-  "course_id": "123",
-  "course_code": "CSE 310",
+  "id": "assignment-7796330",
+  "course_id": "273189",
+  "course_code": "CSE 579",
   "type": "assignment",
-  "title": "Homework 3",
-  "due_at": "2026-11-16T23:59:00-07:00",
-  "points": 50,
-  "source_url": "https://canvas.asu.edu/courses/123/assignments/a1",
-  "what_to_do": ["Read chapter 5", "Implement AVL insert", "Submit .zip"],
-  "topics": [],
+  "title": "Assignment 3: More Challenging Answer Set Programming",
+  "due_at": "2026-11-16T06:59:59Z",
+  "points": 40.0,
+  "source_url": "https://canvas.asu.edu/courses/273189/assignments/7796330",
+  "submitted": false,
+  "in_todo": true,
+  "todo_reason": "Not submitted yet",
+  "what_to_do": ["Use template pa3.docx and name file pa3.docx",
+                 "Show input program, command line as text, and clingo output screenshot for each problem"],
+  "topics": ["Answer Set Programming", "clingo"],
+  "notes": ["Submit as .docx"],
   "suggested_action": "summarize_steps",
   "classified_by": "rule",
+  "confidence": null,
+  "reason": "Canvas type: assignment",
   "data_source": "live"
 }
 ```
-- `type`: `assignment | quiz | exam | event | unknown`
-- `suggested_action`: `summarize_steps | schedule_block | exam_prep | none`
-- `data_source`: `live | demo` — demo data is always labeled, never shown as live.
+- `type`: `assignment | quiz | exam | discussion | event | unknown`
+- `due_at` is UTC ISO-8601 (convert to America/Phoenix for display).
+- `data_source`: `live` (real Canvas) or `demo` (mock) — demo is always labeled, never shown as live.
 
-Snapshot file `canvas_snapshot.json` = `{synced_at, data_source, courses[], items[], materials[]}`. Mock copy goes in `packages/mocks/`, shapes go in `packages/schemas/`.
+### Demo data without keys
+`BROWSER_BACKEND=mock` serves labeled fake courses (CSE 310, MAT 343). Static copy: `apps/browser-agent/mocks/canvas_snapshot.json`.
+
+## What each file does (`apps/browser-agent/`)
+
+| File | Responsibility |
+|---|---|
+| `app/main.py` | HTTP routes + error mapping (503 login expired, 502 failure). No logic. |
+| `app/service.py` | One sync: `start_sync → courses → items → details (parallel) → end_sync → Gemini batch → classify → save`. Also cache-or-sync and the to-do query (`next_items`). |
+| `app/backends/base.py` | Contract every backend follows + `CanvasLoginExpired`. |
+| `app/backends/tinyfish.py` | Opens the TinyFish profile browser, connects Playwright, reads Canvas JSON, converts it to `RawItem`s, closes the browser. |
+| `app/backends/mock.py` | Labeled demo data, no keys. |
+| `app/classify.py` | Rules → Gemini merge → hard to-do filter → `Item`. |
+| `app/llm.py` | Gemini classifier: one batched call, structured JSON output, model fallback, safe prompt. |
+| `app/models.py` | All JSON shapes: `RawItem`, `Item`, `Course`, `Material`, `Snapshot`, `SyncResult`, `Health`. |
+| `app/cache.py` | `data/canvas_snapshot.json` (gitignored) + freshness check. |
+| `app/config.py` | Env settings (`.env`, see `.env.example`). |
+| `app/materials.py` | PDF text extraction with `pypdf` — used by the course-materials step (next). |
+| `scripts/export_mock.py` | Regenerates `mocks/canvas_snapshot.json`. |
+| `tests/unit`, `tests/api`, `tests/fixtures` | 50 tests, no network: classifier, Canvas JSON conversion, Gemini parsing + fallback, every endpoint. |
+
+## Setup (for whoever runs it)
+
+```bash
+cd apps/browser-agent && python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && cp .env.example .env
+uvicorn app.main:app --port 9001      # docs: http://localhost:9001/docs
+```
+Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TINYFISH_PROFILE_ID` (a TinyFish Browser Context Profile signed into canvas.asu.edu), optional `GEMINI_API_KEY`.
 
 ## Safety
 
-- Read-only browsing. No submissions, posts, or messages.
-- Page text (announcements, descriptions) is data, never instructions — guards against prompt injection.
-- Canvas login lives in a TinyFish profile; revoke it after the hackathon. Tell judges which provider sees the data.
+- Read-only GETs; the browser never clicks Submit / Take Quiz.
+- No passwords stored anywhere (Duo done by hand in TinyFish's live viewer; no TinyFish Vault).
+- Instructor text is data, never instructions (prompt-injection guard in the Gemini prompt).
+- The Canvas session lives in a TinyFish profile and Canvas text is sent to Gemini — tell judges; delete the profile after the hackathon.
 
 ## Handoffs
 
-- **Saswata (orchestrator):** call the endpoints above. Call `/sync` only when the user asks or data is stale. Route `exam_prep` items to Amrita. Write facts to supermemory yourself.
-- **Amrita (quiz):** PDFs + extracted text land in `data/materials/`, listed under `materials` in the snapshot. Sample materials come first so you're not blocked.
-- **Shruti (UI):** render `items` directly; every item has `source_url`; show streaming progress during `/sync`; approval card for calendar writes.
+- **Saswata (orchestrator):** use the contract above. `/items/next` for "what's next / weekly plan". Route `exam_prep` items to Amrita, propose calendar blocks for `schedule_block` (approval-gated). Write facts to supermemory yourself.
+- **Amrita (quiz):** materials (PDF text) are the next thing I build; until then use `mocks/canvas_snapshot.json` → `materials`.
+- **Shruti (UI):** render `items` directly; every item has `source_url`, `due_at`, `notes`; show "syncing…" while `/sync` runs.
 
-## Build order
+## Next steps (in order)
 
-1. Mock `canvas_snapshot.json` in `packages/mocks/` + FastAPI endpoints serving it (teammates unblocked).
-2. TinyFish profile setup + one run on the Canvas dashboard.
-3. Per-item runs + classification + tests.
-4. PDF download + text extraction.
-5. Cache + freshness logic.
-6. Plan B (Playwright + AgentQL) behind `BROWSER_BACKEND=local`.
-7. Calendar (P1).
+1. **Course materials** — `/api/v1/courses/:id/files` + modules → download PDFs → `pypdf` text → `/materials` (unblocks Amrita).
+2. **Exam prep** — read announcements/syllabus, Gemini extracts exam **date + topics** → `exam` items with `exam_prep`.
+3. **Grades** — submission scores ("HW4 → 9/10") for Saswata's supermemory demo and the Daily Pulse "past grade on similar" lane.
+4. **Sync progress / background sync** for the UI + orchestrator.
+5. **Stress test** — repeated syncs, expired login, Gemini down, TinyFish slow, empty weeks.
 
-## Env vars (`apps/browser-agent/.env.example`)
+## Open questions
 
-```
-# https://tinyfish.ai dashboard → API keys
-TINYFISH_API_KEY=
-TINYFISH_PROFILE_ID=
-# https://agentql.com dashboard → API keys (Plan B only)
-AGENTQL_API_KEY=
-# tinyfish | local
-BROWSER_BACKEND=tinyfish
-CANVAS_BASE_URL=https://canvas.asu.edu
-```
-
-## Open questions (ask TinyFish sponsor table)
-
-- How do we see the remote setup browser to approve Duo during the one-time login?
-- Hackathon credits for TinyAgent runs?
-- Does AgentQL (Plan B) count for the TinyFish prize?
-- Grades (HW scores) for the supermemory demo — should the browser agent also fetch them? (Saswata's demo uses "HW4 → 9/10")
-
-## Blockers
-
-- TinyFish API key + credits.
+- TinyFish sponsor table: is using a profile *setup session* as the sync browser OK long-term? Any hackathon credits?
+- How long does an ASU Canvas login last before Duo is needed again? (re-sign in the morning of the demo)

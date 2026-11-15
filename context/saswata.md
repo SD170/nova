@@ -25,6 +25,27 @@ Design points:
 - Browser sub-agent is the fallback when services have no usable API (most of the time for student stuff)
 - Approval gate sits between orchestrator and any external write (calendar create, email send, etc.)
 - Everything grounded — quiz answers + Canvas claims carry source URLs / passages
+- Memory layer runs across sessions: once the system knows you struggled with phase shifts last week, it does not re-explain, re-chunk, or re-ask
+
+## Sponsor stack — which track each piece earns
+
+| Layer / sub-agent | Sponsor prize | How it is native (not forced) |
+|---|---|---|
+| Memory (persistent per-student) | **supermemory** | Past assignments, weak topics, writing style preserved across sessions. Quiz skips strong areas, hits weak ones. Also powers context-pack sharing between teammates. |
+| Browser sub-agent | **Tiny Fish** | Scrape Canvas when API is blocked, fetch assignment PDFs from external course sites, pull prof personal pages, RateMyProf, external references. Browser is Plan A for most services. |
+| Long-context reasoning | **Gemini** | 2M-token context: ingest whole course corpus (syllabus + all slides + all assignments) per turn. Vision: scan handwritten notes / whiteboard photos → memory. |
+| Vector store | **MongoDB Atlas** | Embeddings for course materials + per-user memory. Pairs with supermemory. |
+| Orchestrator hosting | **Maritime** | Per-student agent VM. Jarvis keeps state across sessions, can run browser scrapes while you sleep (pre-fetch tomorrow's Canvas updates before your morning session). Literally their pitch. |
+| Narrative / pitch | **JFFVentures (Future of Work)** | Future of learning + knowledge work. International-student angle sharpens it. |
+| Compute / backup models | **AWS** (Bedrock) | One sub-agent on Bedrock, orchestrator on Lambda or ECS. |
+| Primary hosting | **Vultr** | Main web app. Free credits, zero extra engineering, stacks alongside AWS. |
+| Dev workflow (free raffle) | **MLH Cursor + Grok Bot** | Already coding in Cursor; add a Grok Bot to team Discord. 15 min of effort for a free raffle entry. |
+| Activity analytics (if time) | **Tiger Data** | Time-series of study sessions, topic mastery over time, performance charts. P2. |
+| Domain | **GoDaddy Registry** | Buy a .lol or similar for the demo. $12, trivial. |
+
+**Realistic prize count: 5-8.** Best Overall is a stretch if the voice + orchestrator + browser demo lands.
+
+Explicitly not chasing: MatLab (forced), Solana (forced), Hardware (no budget/time), Gaming (not primary — could gamify quizzes if slack), MLH niche tracks.
 
 ## Work chunks (priority ordered, no names yet)
 
@@ -45,29 +66,47 @@ Design points:
 5. **Retrieval + quiz engine**
    Ingest course materials (PDFs / slides / notes) → chunk + embed → store in vector DB. Generate grounded quiz questions with source citations. Grade answers, identify weak topics, suggest revision plan.
 
+### P0.5 — memory layer (Abishek's idea, supermemory-native, sponsor-critical)
+
+6. **Persistent per-student memory**
+   Every assignment done, every quiz taken, every weak topic identified → saved as atomic facts, not re-prompted. On next session:
+   - System already knows what you struggled with
+   - Quiz generator skips mastered topics, hits weak ones
+   - Canvas re-ingest is incremental (only new material), not full re-chunk
+   - Writing style + preferences persist (voice, tone of responses)
+
+   Why this is bumped from P2 → P0.5: without it, our supermemory use is generic RAG. With it, judges see memory *as behavior*, not storage. This IS the supermemory demo moment.
+
 ### P1 — makes the demo impressive
 
-6. **Canvas API path (if a token is available)**
+7. **Canvas API path (if a token is available)**
    Real Canvas REST calls as a faster + more reliable alternative to browser scrape. Same tool contract as the browser sub-agent.
 
-7. **Calendar sub-agent**
+8. **Calendar sub-agent**
    Google Calendar OAuth, read free/busy, propose study blocks, create block (approval-gated).
 
-8. **Approval gate UI**
+9. **Approval gate UI**
    Preview card showing exactly what tool will be called with what arguments. Approve / Cancel buttons. "What will be sent to the LLM" transparency.
+
+10. **Context pack export / import (team sharing — Abishek's idea #2)**
+    Package a student's Jarvis context for a given course (embedded materials + weak-topic graph + prior quizzes + style prefs) as a portable artifact. Teammate imports → their Jarvis instantly knows the course structure + accumulated understanding.
+    Scope for 20h: 10-minute version — serialize to JSON, drop-in-import endpoint, demo one hand-off on stage. Full product is post-hackathon.
 
 ### P2 — stretch / polish
 
-9. **Memory layer**
-   Persistent per-user memory of weak topics, past quizzes, study preferences. Fits supermemory.
-
-10. **OS-level app access**
+11. **OS-level app access**
     AppleScript / accessibility bridge to native macOS apps (Reminders, Notes, Mail). Optional second integration surface.
 
-11. **Second browser capability**
+12. **Second browser capability**
     e.g., scrape professor's personal course page when Canvas is missing material. Adds complexity for judges.
 
-12. **Demo polish**
+13. **Activity analytics (Tiger Data prize)**
+    Time-series charts of study sessions, topic mastery over time. Cards in the UI. Only if someone has slack.
+
+14. **Quiz gamification (Gaming prize, maybe)**
+    XP, streaks, leaderboard across teammates. Only if slack. Not primary.
+
+15. **Demo polish**
     Loading states, error toasts, graceful fallbacks, rehearsal, backup recorded video.
 
 ## Hour-0, done together (not assigned, decided as a group)
@@ -78,6 +117,7 @@ Design points:
 - Lock JSON schemas: `/chat` request/response, tool call shape, UI card types
 - Decide Canvas path: API, browser, or both
 - Stub mock responses for every tool so everyone can build in parallel from minute 1
+- Decide memory schema (atomic facts shape) — needed by orchestrator + retrieval + supermemory together
 
 ## Interface contract draft (for orchestrator — lock in hour 0)
 

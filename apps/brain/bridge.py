@@ -591,13 +591,17 @@ async def ask_brain(request: Request):
         else:
             # ASYNC: return "on it" immediately; Hermes runs in background;
             # when done, inject the reply into the live Vapi call via /control.
-            log.info("[t-ask_brain %s] ASYNC dispatching call_id=%s", turn_id, call_id)
+            # Register the task so the router can check status later.
+            task = _register_task(call_id, question)
+            log.info("[t-ask_brain %s] ASYNC dispatching call_id=%s task=%s",
+                     turn_id, call_id, task["id"])
             asyncio.create_task(
-                _run_brain_and_inject(turn_id, call_id, prompted, question)
+                _run_brain_and_inject(turn_id, call_id, task["id"], prompted, question)
             )
             results.append({
                 "toolCallId": tc_id,
-                "result": "Working on it in the background — I'll speak the answer when I have it.",
+                "result": f"Started task {task['id']}: {question[:60]}. "
+                           "I'll speak the answer when ready.",
             })
 
     return JSONResponse({"results": results})
@@ -606,6 +610,79 @@ async def ask_brain(request: Request):
 # Max chars we'll let into TTS from a single Hermes reply. Longer gets
 # truncated at the last sentence boundary before this cap. Keeps turns < ~8s.
 _REPLY_CAP = 240
+
+
+# ────────── background task registry ──────────
+# Tracks async Hermes jobs per call so the router can ask 'check_task' instead
+# of re-delegating the same question.
+
+_task_counter = 0
+
+
+def _next_task_id() -> str:
+    global _task_counter
+    _task_counter += 1
+    return f"t{_task_counter:03d}"
+
+
+# call_id -> list[dict]
+_tasks_by_call: dict[str, list[dict]] = {}
+
+
+def _register_task(call_id: str, question: str) -> dict:
+    tid = _next_task_id()
+    entry = {
+        "id": tid,
+        "question": question,
+        "status": "running",       # running | done | error
+        "started_at": time.time(),
+        "finished_at": None,
+        "result": None,
+    }
+    _tasks_by_call.setdefault(call_id, []).append(entry)
+    return entry
+
+
+def _update_task(call_id: str, tid: str, *, status: str, result: str) -> None:
+    for t in _tasks_by_call.get(call_id, []):
+        if t["id"] == tid:
+            t["status"] = status
+            t["finished_at"] = time.time()
+            t["result"] = result
+            return
+
+
+def _format_tasks_for_speech(call_id: str, which: str | None) -> str:
+    tasks = _tasks_by_call.get(call_id, [])
+    if not tasks:
+        return "No active tasks."
+    if which:
+        for t in tasks:
+            if t["id"] == which:
+                return _one_task_line(t)
+        return f"No task {which}."
+    # Default: summarize most recent
+    running = [t for t in tasks if t["status"] == "running"]
+    done_unspoken = [t for t in tasks if t["status"] == "done" and not t.get("spoken")]
+    if done_unspoken:
+        t = done_unspoken[-1]
+        t["spoken"] = True
+        return f"That {t['question'][:40]!r} just finished: {t['result'][:160]}"
+    if running:
+        latest = running[-1]
+        age = int(time.time() - latest["started_at"])
+        return f"Still on '{latest['question'][:40]}' — {age} seconds in."
+    # All done & already-spoken
+    return "Nothing running right now."
+
+
+def _one_task_line(t: dict) -> str:
+    if t["status"] == "running":
+        age = int(time.time() - t["started_at"])
+        return f"'{t['question'][:40]}' — running, {age} seconds in."
+    if t["status"] == "done":
+        return f"'{t['question'][:40]}' — done. {t['result'][:160]}"
+    return f"'{t['question'][:40]}' — errored."
 
 
 def _cap_reply(text: str) -> str:
@@ -621,21 +698,25 @@ def _cap_reply(text: str) -> str:
     return head.rstrip() + "…"
 
 
-async def _run_brain_and_inject(turn_id: str, call_id: str,
+async def _run_brain_and_inject(turn_id: str, call_id: str, task_id: str,
                                 prompted: str, question: str) -> None:
     """Background worker: run Hermes, then inject the reply into the live call."""
     t0 = time.time()
+    status = "done"
     try:
         reply, _ = await _run_hermes(prompted, resume_session=None)
     except HTTPException as exc:
         log.error("[t-ask_brain %s] async hermes error: %s", turn_id, exc.detail)
         reply = "I hit a snag looking that up."
+        status = "error"
     except Exception as exc:
         log.exception("[t-ask_brain %s] async hermes crash: %s", turn_id, exc)
         reply = "I hit a snag looking that up."
+        status = "error"
     if not reply:
         reply = "Couldn't find anything on that."
     reply = _cap_reply(reply)
+    _update_task(call_id, task_id, status=status, result=reply)
     log.info("[t-ask_brain %s] ASYNC done len=%d took=%.3fs q=%r",
              turn_id, len(reply), time.time() - t0, question[:80])
     ok = _vapi_inject_say(call_id, reply)
@@ -646,15 +727,51 @@ VAPI_PRIVATE_KEY = os.environ.get("VAPI_PRIVATE_KEY", "")
 VAPI_API_BASE = "https://api.vapi.ai"
 
 
-def _vapi_inject_say(call_id: str, content: str) -> bool:
-    """POST to Vapi's live-call control URL to make the assistant speak `content`.
+# Each live Vapi call has a per-call control URL on a regional WebSocket domain
+# (e.g. phone-call-websocket.aws-us-west-2-backend-production2.vapi.ai/<id>/control).
+# It's returned as monitor.controlUrl on GET /call/{id}. We fetch and cache once
+# per call_id, then POST {type:'say', content:...} to make Nova speak unprompted.
+# NOTE: /call/{id}/control on api.vapi.ai is 404 — must use monitor.controlUrl.
+_control_url_cache: dict[str, str] = {}
 
-    Uses the documented `POST /call/{id}/control` with `{"type": "say"}`.
-    Returns True on 2xx, False otherwise.
+
+def _fetch_control_url(call_id: str) -> str | None:
+    cached = _control_url_cache.get(call_id)
+    if cached:
+        return cached
+    if not VAPI_PRIVATE_KEY:
+        return None
+    req = urllib.request.Request(
+        f"{VAPI_API_BASE}/call/{call_id}",
+        headers={
+            "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
+            "User-Agent": "nova-bridge/0.3",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        log.error("vapi fetch call %s: %s", call_id, e)
+        return None
+    url = ((data.get("monitor") or {}).get("controlUrl")
+           or data.get("controlUrl"))
+    if url:
+        _control_url_cache[call_id] = url
+    return url
+
+
+def _vapi_inject_say(call_id: str, content: str) -> bool:
+    """Inject an assistant utterance into a live Vapi call.
+
+    Uses the per-call monitor.controlUrl. Returns True on 2xx.
     """
     if not VAPI_PRIVATE_KEY or not call_id or not content:
         return False
-    url = f"{VAPI_API_BASE}/call/{call_id}/control"
+    url = _fetch_control_url(call_id)
+    if not url:
+        log.error("vapi inject: no controlUrl for call %s", call_id)
+        return False
     body = json.dumps({
         "type": "say",
         "content": content,
@@ -664,9 +781,8 @@ def _vapi_inject_say(call_id: str, content: str) -> bool:
     req = urllib.request.Request(
         url, data=body,
         headers={
-            "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
             "Content-Type": "application/json",
-            "User-Agent": "nova-bridge/0.2",
+            "User-Agent": "nova-bridge/0.3",
         },
         method="POST",
     )
@@ -674,11 +790,50 @@ def _vapi_inject_say(call_id: str, content: str) -> bool:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return 200 <= resp.status < 300
     except urllib.error.HTTPError as e:
-        log.error("vapi inject HTTP %d: %s", e.code, e.read()[:300])
+        log.error("vapi inject HTTP %d at %s: %s", e.code, url, e.read()[:300])
         return False
     except Exception as e:
-        log.error("vapi inject error: %s", e)
+        log.error("vapi inject error at %s: %s", url, e)
         return False
+
+
+# ────────── /check_task: status lookup tool for the router ──────────
+
+@app.post("/check_task")
+async def check_task(request: Request):
+    """Vapi function tool. Returns spoken status of pending/recent Hermes tasks.
+
+    Args: optional `task_id` (e.g. 't003'). Without it returns the latest
+    relevant task (unspoken-done preferred, else running, else "nothing").
+    """
+    body = await request.json()
+    turn_id = uuid.uuid4().hex[:6]
+    tool_calls = (body.get("message") or {}).get("toolCalls") or []
+    call_id = ((body.get("message") or {}).get("call") or {}).get("id")
+
+    if not tool_calls:
+        # curl fallback: {"call_id": "...", "task_id": "..."}
+        cid = body.get("call_id") or ""
+        which = body.get("task_id")
+        reply = _format_tasks_for_speech(cid, which) if cid else "No call id."
+        return JSONResponse({"results": [{"toolCallId": f"tc-{turn_id}",
+                                           "result": reply}]})
+
+    results = []
+    for tc in tool_calls:
+        tc_id = tc.get("id") or tc.get("toolCallId") or f"tc-{turn_id}"
+        args = (tc.get("function") or {}).get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except json.JSONDecodeError:
+                args = {}
+        which = args.get("task_id")
+        reply = _format_tasks_for_speech(call_id or "", which)
+        log.info("[t-check_task %s] call=%s which=%s → %r",
+                 turn_id, call_id, which, reply[:120])
+        results.append({"toolCallId": tc_id, "result": reply})
+    return JSONResponse({"results": results})
 
 
 

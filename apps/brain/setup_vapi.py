@@ -85,6 +85,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 
 CUSTOM_LLM_URL = f"{BRAIN_BASE}/v1/chat/completions"
 ASK_BRAIN_URL = f"{BRAIN_BASE}/ask_brain"
+CHECK_TASK_URL = f"{BRAIN_BASE}/check_task"
 
 # Router prompt lives in NOVA_ROUTER.md next to this file. Groq gets the slim
 # version; deep Canvas/Gmail guidance stays in SOUL.md (Hermes side).
@@ -129,6 +130,42 @@ def _ask_brain_tool() -> dict:
     }
 
 
+def _check_task_tool() -> dict:
+    """Vapi function tool to inspect pending/recent Hermes background tasks.
+
+    The router calls this when the user asks 'still on it?' / 'any update?' /
+    'that thing I asked about' — AVOIDS re-dispatching the same expensive
+    Hermes query.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": "check_task",
+            "description": (
+                "Check the status of a previously-delegated background task. "
+                "Call this (not ask_brain) when the user asks about something "
+                "they already asked about, says 'still on it?', 'any update?', "
+                "'that thing I asked about', or similar follow-ups. Returns "
+                "'No active tasks.' if nothing pending; otherwise a short status."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "Optional specific task id (e.g. 't003'). Omit to get the most relevant.",
+                    },
+                },
+            },
+        },
+        "server": {"url": CHECK_TASK_URL, "timeoutSeconds": 5},
+        "messages": [
+            {"type": "request-failed",
+             "content": "Couldn't check that — try again?"},
+        ],
+    }
+
+
 def nova_config(shruti_id: str) -> dict:
     """Patch body for Nova assistant (the main one).
 
@@ -145,7 +182,7 @@ def nova_config(shruti_id: str) -> dict:
                 "role": "system",
                 "content": NOVA_ROUTER_PROMPT,
             }],
-            "tools": [_ask_brain_tool()] + _transfer_tool(
+            "tools": [_ask_brain_tool(), _check_task_tool()] + _transfer_tool(
                 shruti_id, "Shruti", "Switching you over to Shruti.",
                 "Hand off to Shruti when the user asks for a student perspective "
                 "or says 'talk to me as Shruti'.",
@@ -200,7 +237,7 @@ def shruti_config(nova_id: str) -> dict:
                     NOVA_ROUTER_PROMPT.replace("You are **Nova**", "You are **Shruti**, a fellow student (warmer, more casual than Nova)")
                 ),
             }],
-            "tools": [_ask_brain_tool()] + _transfer_tool(
+            "tools": [_ask_brain_tool(), _check_task_tool()] + _transfer_tool(
                 nova_id, "Nova", "Handing you back to Nova.",
                 "Hand off to Nova when the user wants formal mode or says 'back to Nova'.",
             ),

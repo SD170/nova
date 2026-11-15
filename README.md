@@ -191,7 +191,6 @@ Jarvis Care makes everyday health information and appointment preparation more a
 Jarvis provides understandable information and helps organize next steps.
 
 **Jarvis Care does not diagnose conditions, prescribe medication, or replace qualified healthcare professionals.**
-
 ---
 
 ## ♿ Accessibility for Everyone

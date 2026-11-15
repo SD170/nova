@@ -1,4 +1,4 @@
-"""Create (or update) the Student Jarvis Vapi assistant via REST.
+"""Create (or update) the Nova Vapi assistant via REST.
 
 Usage:
   export WEBHOOK_URL=https://<your-ngrok-domain>/vapi
@@ -109,7 +109,7 @@ quizzing the student on upcoming exams using their real course content, and
 scheduling revision blocks on their calendar.
 
 Rules:
-- Do not greet with "Jarvis" or any pop-culture AI name. Use your current name.
+- Do not greet with "Nova" or any pop-culture AI name. Use your current name.
 - Speak conversationally, one sentence at a time. Students are often walking.
 - Prefer calling tools over guessing. If you do not know, call a tool.
 - When you need to write to an external service (create_study_block, send emails),

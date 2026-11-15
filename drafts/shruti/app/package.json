@@ -1,9 +1,9 @@
 {
-  "name": "student-jarvis-ui",
+  "name": "nova-ui",
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Student Jarvis — voice-only desktop UI (Shruti's draft)",
+  "description": "Nova — voice-only desktop UI (Shruti's draft)",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "concurrently -k -n vite,electron -c magenta,green \"vite --port 5173 --strictPort\" \"wait-on tcp:127.0.0.1:5173 && cross-env ELECTRON_START_URL=http://127.0.0.1:5173 electron .\"",

@@ -1,4 +1,4 @@
-# Jarvis — holographic avatar (Shruti's draft)
+# Nova — holographic avatar (Shruti's draft)
 
 Standalone desktop app (Electron + React + Vite + Three.js): a neon-grid holographic
 head & shoulders over an animated liquid-silk background, driven by push-to-talk.
@@ -27,8 +27,8 @@ on first launch.
 |---|---|---|
 | idle | default | gentle sway, blinks, breathing |
 | listening | **hold SPACE** (the only way to talk) | signal-wave arcs pulse out of both ears; louder voice = brighter, faster pulses |
-| thinking | release SPACE | head tilts up and to the side, eyes glance away, movement slows, grid shimmers; wireframe **?**, **!** and **light bulbs** (green, purple, violet, blue) drift across the whole screen at different depths, never over the face; bulbs occasionally flicker on like an idea. All of them fade out (0.6 s) before Jarvis speaks |
-| speaking | Jarvis audio playing (`connectAudio`) | head faces the user and talks: lip sync only, nothing else on screen. The open mouth is a solid black cavity with the neon-green grid continuing inside |
+| thinking | release SPACE | head tilts up and to the side, eyes glance away, movement slows, grid shimmers; wireframe **?**, **!** and **light bulbs** (green, purple, violet, blue) drift across the whole screen at different depths, never over the face; bulbs occasionally flicker on like an idea. All of them fade out (0.6 s) before Nova speaks |
+| speaking | Nova audio playing (`connectAudio`) | head faces the user and talks: lip sync only, nothing else on screen. The open mouth is a solid black cavity with the neon-green grid continuing inside |
 
 On release, the recording is emitted. **TODO(backend)**: send it to the orchestrator
 and play the reply:

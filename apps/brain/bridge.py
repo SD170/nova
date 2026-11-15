@@ -10,7 +10,7 @@ Design choices (see context/saswata.md):
     HERMES_HOME is pointed at apps/brain/hermes-home/shruti.
   - One long-lived Hermes session per Vapi call, resumed across turns via
     `-c <name>` so the brain remembers within a call.
-  - Persona (jarvis | shruti) is prepended to the user message as
+  - Persona (nova | shruti) is prepended to the user message as
     `[persona: <name>]` and SOUL.md tells the brain to strip + obey it.
   - Subprocess per turn, not a persistent stdio daemon. Cold subprocess startup
     is ~400ms on this machine, acceptable for voice. Trade: simplicity ≫ perf.
@@ -109,11 +109,34 @@ _sessions_by_call: dict[str, str] = {}
 # Vapi doesn't natively tell us which assistant called us, so we look at:
 #   1. request.assistant.name (if present)
 #   2. the first system message (Vapi injects the assistant's system prompt here)
-#   3. default = jarvis
+#   3. default = nova
 #
 # The persona token is prepended to the user message so SOUL.md's rule fires.
 
 PERSONA_RE = re.compile(r"\b(nova|shruti)\b", re.I)
+
+# TTS-unfriendly markdown. We strip before handing text to Vapi so Elliot/Savannah
+# don't say "double asterisk" or "pound pound" out loud.
+_MD_HEADER   = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
+_MD_BOLDITAL = re.compile(r"\*{1,3}([^*\n]+?)\*{1,3}")
+_MD_UNDERITL = re.compile(r"_{1,3}([^_\n]+?)_{1,3}")
+_MD_CODEFENC = re.compile(r"```[^\n]*\n?|```")
+_MD_INLINEC  = re.compile(r"`([^`\n]+?)`")
+_MD_BULLET   = re.compile(r"^\s*[-*+]\s+", re.M)
+_MD_LINK     = re.compile(r"\[([^\]]+?)\]\([^)]+?\)")
+
+def _strip_markdown_for_tts(text: str) -> str:
+    if not text or not any(c in text for c in "*_`#[-"):
+        return text
+    t = text
+    t = _MD_CODEFENC.sub("", t)
+    t = _MD_LINK.sub(r"\1", t)
+    t = _MD_INLINEC.sub(r"\1", t)
+    t = _MD_HEADER.sub("", t)
+    t = _MD_BOLDITAL.sub(r"\1", t)
+    t = _MD_UNDERITL.sub(r"\1", t)
+    t = _MD_BULLET.sub("", t)
+    return t.strip()
 
 
 def _infer_persona(body: dict[str, Any]) -> str:
@@ -202,6 +225,9 @@ async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str
             break
         out = out[nl + 1:].lstrip()
 
+    # Strip markdown so Vapi's TTS doesn't say "double asterisk" / "pound".
+    out = _strip_markdown_for_tts(out)
+
     if proc.returncode != 0:
         log.error("hermes exit=%d stderr=%s", proc.returncode, err[:500])
         raise HTTPException(status_code=502, detail=f"hermes failed: {err[:200] or 'unknown'}")
@@ -262,6 +288,17 @@ async def health():
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
+    return await _chat(request)
+
+
+# Vapi "Custom LLM" appends /chat/completions to the configured base URL,
+# not /v1/chat/completions. Mount an alias so both work.
+@app.post("/chat/completions")
+async def chat_completions_alias(request: Request):
+    return await _chat(request)
+
+
+async def _chat(request: Request):
     body = await request.json()
     try:
         _ = ChatRequest.model_validate(body)   # shape sanity

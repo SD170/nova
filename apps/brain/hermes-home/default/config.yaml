@@ -1,4 +1,4 @@
-# Student Jarvis brain — voice-call profile.
+# Nova brain — voice-call profile.
 # Pinned for low latency + direct-to-point replies. Spawned by apps/vapi-bridge.
 #
 # NOTE: this profile is meant to be driven non-interactively via `hermes chat -q`,

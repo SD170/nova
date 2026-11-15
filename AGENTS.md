@@ -1,4 +1,4 @@
-# AGENTS.md — Student Jarvis
+# AGENTS.md — Nova
 
 Auto-loaded by Hermes / Claude Code / Cursor / Codex when run from this repo.
 
@@ -8,7 +8,7 @@ Voice-enabled agentic student assistant. Canvas-grounded. Exam prep. Calendar sc
 
 ## Pitch in one line
 
-"Jarvis for students — ask once by voice, it reads your Canvas, quizzes you on real course material, and books revision blocks into your calendar after approval."
+"Nova for students — ask once by voice, it reads your Canvas, quizzes you on real course material, and books revision blocks into your calendar after approval."
 
 ## Hard constraints
 

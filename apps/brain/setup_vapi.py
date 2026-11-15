@@ -7,7 +7,7 @@ Both use Vapi "Custom LLM" → our Cloudflare tunnel → bridge.py → Hermes.
 Transfer between them via Vapi's native transferCall destination.
 
 Idempotent:
-  - Existing assistant VAPI_ASSISTANT_ID (currently "Student Jarvis") is
+  - Existing assistant VAPI_ASSISTANT_ID (currently "Nova") is
     PATCHed in place to become Nova, pointed at the custom LLM.
   - "Shruti student" is created on first run; subsequent runs PATCH by name.
 
@@ -48,6 +48,7 @@ _load_env(HERE.parent.parent / "shared.env")
 
 VAPI_KEY = os.environ.get("VAPI_PRIVATE_KEY", "")
 NOVA_ID = os.environ.get("VAPI_ASSISTANT_ID", "")
+SHRUTI_ID_ENV = os.environ.get("VAPI_SHRUTI_ASSISTANT_ID", "")
 BRAIN_BASE = os.environ.get("PUBLIC_BRAIN_BASE", "").rstrip("/")
 
 if not VAPI_KEY:
@@ -61,7 +62,7 @@ VAPI_API = "https://api.vapi.ai"
 HEADERS = {
     "Authorization": f"Bearer {VAPI_KEY}",
     "Content-Type": "application/json",
-    "User-Agent": "nova-setup/0.1 (+https://github.com/SD170/student-jarvis)",
+    "User-Agent": "nova-setup/0.1 (+https://github.com/SD170/student-nova)",
 }
 
 
@@ -84,7 +85,7 @@ def api(method: str, path: str, body: dict | None = None) -> dict:
 CUSTOM_LLM_URL = f"{BRAIN_BASE}/v1/chat/completions"
 
 
-def nova_config() -> dict:
+def nova_config(shruti_id: str) -> dict:
     """Patch body for Nova assistant (the main one)."""
     return {
         "name": "Nova",
@@ -106,15 +107,9 @@ def nova_config() -> dict:
                     "The user's note shows up as the user turn; respond as Nova."
                 ),
             }],
-            "tools": [{
-                "type": "transferCall",
-                "destinations": [{
-                    "type": "assistant",
-                    "assistantName": "Shruti",
-                    "message": "Switching you over to Shruti.",
-                    "description": "Hand off to Shruti when the user asks for a student perspective or says 'talk to me as Shruti'.",
-                }],
-            }],
+            "tools": _transfer_tool(shruti_id, "Shruti", "Switching you over to Shruti.",
+                                    "Hand off to Shruti when the user asks for a student perspective "
+                                    "or says 'talk to me as Shruti'."),
         },
         "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en-US"},
         "endCallFunctionEnabled": False,
@@ -123,13 +118,14 @@ def nova_config() -> dict:
     }
 
 
-def shruti_config() -> dict:
+def shruti_config(nova_id: str) -> dict:
     return {
         "name": "Shruti",
         "firstMessage": "Hey hey, it's me, Shruti. What's up?",
         "voice": {
             "provider": "vapi",
             "voiceId": "Savannah",       # warmer, friendly (new-gen Vapi voice)
+            "speed": 0.95,
         },
         "model": {
             "provider": "custom-llm",
@@ -145,21 +141,24 @@ def shruti_config() -> dict:
                     "The user turn is the student talking; respond as Shruti."
                 ),
             }],
-            "tools": [{
-                "type": "transferCall",
-                "destinations": [{
-                    "type": "assistant",
-                    "assistantName": "Nova",
-                    "message": "Handing you back to Nova.",
-                    "description": "Hand off to Nova when the user wants formal mode or says 'back to Nova'.",
-                }],
-            }],
+            "tools": _transfer_tool(nova_id, "Nova", "Handing you back to Nova.",
+                                    "Hand off to Nova when the user wants formal mode or says 'back to Nova'."),
         },
         "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en-US"},
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 600,
     }
+
+
+def _transfer_tool(_assistant_id: str, _name: str, _message: str, _description: str) -> list:
+    """DISABLED: Vapi's transferCall schema here is sensitive and rejecting every
+    combination of assistantId/assistantName we've tried (both the 'should not
+    exist' and 'resources-validation' errors). Persona switch is not on the
+    critical demo path. Ship Nova + Shruti as independent assistants; user picks
+    which one to start on the client. Revisit via Vapi squads when time allows.
+    """
+    return []
 
 
 # ─── reconcile ───────────────────────────────────────────────────────────
@@ -185,15 +184,16 @@ def upsert(existing: dict | None, cfg: dict, label: str) -> dict:
 def main() -> None:
     print(f"brain URL: {CUSTOM_LLM_URL}")
 
-    # Shruti first (Nova's transferCall references its name)
+    # Shruti first — Nova needs Shruti's id in its transferCall tool.
     print("\n[Shruti] upserting")
     existing_sh = find_by_name("Shruti")
-    shruti = upsert(existing_sh, shruti_config(), "Shruti")
+    # On first creation Shruti doesn't know Nova's id yet; pass NOVA_ID (always set).
+    shruti = upsert(existing_sh, shruti_config(NOVA_ID), "Shruti")
     print(f"  id: {shruti['id']}  voice: {shruti.get('voice', {}).get('voiceId')}")
 
-    # Nova: patch the existing assistant
+    # Nova: patch the existing assistant, now that Shruti has a real id.
     print(f"\n[Nova] patching existing VAPI_ASSISTANT_ID={NOVA_ID}")
-    nova = api("PATCH", f"/assistant/{NOVA_ID}", nova_config())
+    nova = api("PATCH", f"/assistant/{NOVA_ID}", nova_config(shruti["id"]))
     print(f"  name: {nova.get('name')}  voice: {nova.get('voice', {}).get('voiceId')}")
 
     print("\nWrite these to shared.env:")

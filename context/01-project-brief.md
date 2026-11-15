@@ -1,6 +1,6 @@
 # 01 — Project Brief
 
-Full context for Student Jarvis. Synthesizes the gpt.pdf brief + the full brainstorm thread (ideas explored, why we picked this one, ideas rejected and why).
+Full context for Nova. Synthesizes the gpt.pdf brief + the full brainstorm thread (ideas explored, why we picked this one, ideas rejected and why).
 
 ## Where we are
 
@@ -13,7 +13,7 @@ Full context for Student Jarvis. Synthesizes the gpt.pdf brief + the full brains
 
 Voice-enabled agentic student assistant, Canvas-grounded.
 
-**Demo statement:** "Jarvis, I have an exam on Monday. Check what I need to study, test my knowledge, and find time to revise around my commitments."
+**Demo statement:** "Nova, I have an exam on Monday. Check what I need to study, test my knowledge, and find time to revise around my commitments."
 
 This is **not** a chatbot wrapper. The agent must:
 1. Retrieve real Canvas data (courses, assignments, materials)
@@ -100,12 +100,12 @@ These are **proposed internal interfaces**, not existing APIs.
 
 ## End-to-end demo
 
-1. Student: *"Jarvis, I have an exam on Monday. Am I ready?"*
-2. Jarvis retrieves relevant Canvas materials, upcoming assignments, exam info if available
-3. Jarvis summarizes likely topics **with source links** — does not invent exam coverage
-4. Student: *"Quiz me while I'm walking home."* Jarvis asks by voice, evaluates, identifies weak areas
-5. Jarvis: *"You struggled with two topics. I can schedule revision in your free slots."*
-6. Student approves → Jarvis creates calendar study block (only if calendar integration ready)
+1. Student: *"Nova, I have an exam on Monday. Am I ready?"*
+2. Nova retrieves relevant Canvas materials, upcoming assignments, exam info if available
+3. Nova summarizes likely topics **with source links** — does not invent exam coverage
+4. Student: *"Quiz me while I'm walking home."* Nova asks by voice, evaluates, identifies weak areas
+5. Nova: *"You struggled with two topics. I can schedule revision in your free slots."*
+6. Student approves → Nova creates calendar study block (only if calendar integration ready)
 
 **Fallback:** If Calendar OAuth or Canvas doc access fails → use clearly labeled demo data for that integration. Keep agent + quiz working. **Never present mocks as live account access.**
 
@@ -148,8 +148,8 @@ Categories to evaluate quickly:
 ## Success criteria
 
 - Student can ask natural-language question, get Canvas-grounded answer
-- Jarvis can run short voice quiz using retrieved course content
-- Jarvis can recommend personalized revision plan based on answers + deadlines
+- Nova can run short voice quiz using retrieved course content
+- Nova can recommend personalized revision plan based on answers + deadlines
 - At least one external action works (preferably Calendar) after explicit approval, OR is clearly demonstrated as mock
 - Demo recovers from API errors without crashing
 
@@ -208,7 +208,7 @@ Full log of alternatives explored and why we didn't pick them. Useful if we hit 
 8. **"Watch my browser all day" ambient Cluely-clone** — crowded (Dia, Comet, Arc Max, Rewind); creepy framing; crowded prize landscape.
 9. **Helping autistic kids** — high domain risk without community input; low complexity ceiling; no sponsor stack fit; no judging axis for impact.
 
-### Why Student Jarvis won the final selection
+### Why Nova won the final selection
 
 - **You live this problem** (ASU student, Canvas is real pain, international student + CPT context)
 - **Real backend work:** retrieval pipeline, tool orchestration, voice loop, OAuth, approval gate
@@ -228,7 +228,7 @@ From 2026 agent hackathons (Berkeley AI, Anthropic x Maryland, Agentic Engineeri
 - **"Niche vertical, real pain"** — policyDiff, TC-Pilot, Arrive (international students at UMD)
 - **"Grounded with citations, no hallucinations"** — saga, CoTA
 
-**Student Jarvis matches 3 of these patterns simultaneously.** That's the design thesis.
+**Nova matches 3 of these patterns simultaneously.** That's the design thesis.
 
 ## First-hour checklist
 

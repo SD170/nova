@@ -38,7 +38,7 @@ _load_env(HERE / ".env")
 _load_env(HERE.parent.parent / "shared.env")
 
 
-app = FastAPI(title="Student Jarvis voice webhook")
+app = FastAPI(title="Nova voice webhook")
 app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
@@ -257,7 +257,7 @@ async def vapi(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"{BOLD}{CYAN}Student Jarvis voice webhook{RESET} — listening on :7070")
+    print(f"{BOLD}{CYAN}Nova voice webhook{RESET} — listening on :7070")
     print(f"Point Vapi assistant.server.url at:  https://<tunnel>/vapi")
     print()
     uvicorn.run(app, host="0.0.0.0", port=7070, log_level="warning")

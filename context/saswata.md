@@ -46,7 +46,7 @@ Design points:
 | Browser sub-agent | **Tiny Fish** | Scrape Canvas when API is blocked, fetch assignment PDFs from external course sites, pull prof personal pages, RateMyProf, external references. Browser is Plan A for most services. |
 | Long-context reasoning | **Gemini** | 2M-token context: ingest whole course corpus (syllabus + all slides + all assignments) per turn. Vision: scan handwritten notes / whiteboard photos → memory. |
 | Vector store | **MongoDB Atlas** | Embeddings for course materials + per-user memory. Pairs with supermemory. |
-| Orchestrator hosting | **Maritime** | Per-student agent VM. Jarvis keeps state across sessions, can run browser scrapes while you sleep (pre-fetch tomorrow's Canvas updates before your morning session). Literally their pitch. |
+| Orchestrator hosting | **Maritime** | Per-student agent VM. Nova keeps state across sessions, can run browser scrapes while you sleep (pre-fetch tomorrow's Canvas updates before your morning session). Literally their pitch. |
 | Narrative / pitch | **JFFVentures (Future of Work)** | Future of learning + knowledge work. International-student angle sharpens it. |
 | Compute / backup models | **AWS** (Bedrock) | One sub-agent on Bedrock, orchestrator on Lambda or ECS. |
 | Primary hosting | **Vultr** | Main web app. Free credits, zero extra engineering, stacks alongside AWS. |
@@ -100,7 +100,7 @@ Explicitly not chasing: MatLab (forced), Solana (forced), Hardware (no budget/ti
    Preview card showing exactly what tool will be called with what arguments. Approve / Cancel buttons. "What will be sent to the LLM" transparency.
 
 10. **Context pack export / import (team sharing — Abishek's idea #2)**
-    Package a student's Jarvis context for a given course (embedded materials + weak-topic graph + prior quizzes + style prefs) as a portable artifact. Teammate imports → their Jarvis instantly knows the course structure + accumulated understanding.
+    Package a student's Nova context for a given course (embedded materials + weak-topic graph + prior quizzes + style prefs) as a portable artifact. Teammate imports → their Nova instantly knows the course structure + accumulated understanding.
     Scope for 20h: 10-minute version — serialize to JSON, drop-in-import endpoint, demo one hand-off on stage. Full product is post-hackathon.
 
 ### P2 — stretch / polish
@@ -136,7 +136,7 @@ Explicitly not chasing: MatLab (forced), Solana (forced), Hardware (no budget/ti
 POST /chat
 {
   "session_id": "uuid",
-  "message": "Jarvis, I have an exam Monday. Am I ready?",
+  "message": "Nova, I have an exam Monday. Am I ready?",
   "voice": false
 }
 
@@ -156,9 +156,9 @@ POST /chat
 
 ## supermemory — killer demo (the line we rehearse)
 
-User: *"Jarvis, quiz me for Monday's exam."*
+User: *"Nova, quiz me for Monday's exam."*
 
-Jarvis: *"Skipping convolution — you got 9/10 on HW4 and the prof's email last Tuesday said it won't be on the exam. Phase shifts — you missed 3 of 4 in HW3 and your notes from Oct 12 said 'I don't get this' — starting here. Question 1..."*
+Nova: *"Skipping convolution — you got 9/10 on HW4 and the prof's email last Tuesday said it won't be on the exam. Phase shifts — you missed 3 of 4 in HW3 and your notes from Oct 12 said 'I don't get this' — starting here. Question 1..."*
 
 Why this is **the** supermemory demo, not something else:
 
@@ -179,7 +179,7 @@ Supporting memory moments to layer in if time:
 
 - **Cross-assignment carryover** — "You wrote a great intro about dynamic programming in HW2. Reuse that framing here." The *voice* persists.
 - **Fix-it-once rule** — first correction ("in this course we use Kleinberg, not Cormen") sticks forever.
-- **Teammate hand-off (Abishek's idea #2)** — "Fork my Jarvis context for CSE 310 to Priya." Her Jarvis gets the course structure + accumulated class understanding, not your personal weak-topic map. Clearly different from sharing notes.
+- **Teammate hand-off (Abishek's idea #2)** — "Fork my Nova context for CSE 310 to Priya." Her Nova gets the course structure + accumulated class understanding, not your personal weak-topic map. Clearly different from sharing notes.
 
 ## Voice stack decision
 
@@ -220,7 +220,7 @@ Rule for every PR: if you added a new env var, you updated `.env.example` (and `
 Each P0 chunk gets its own folder under `apps/`. Keeps teammates from stepping on each other's code, makes diffs clean, makes it obvious what's done.
 
 ```
-student-jarvis/
+student-nova/
 ├── AGENTS.md
 ├── README.md
 ├── context/                     # shared team brain (md only, no code)

@@ -41,7 +41,7 @@ Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
                                    │
                                    ▼
  1. TinyFish: open a cloud browser from the saved Browser Context Profile
-    ("Jarvis - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
+    ("Nova - ASU Canvas", already logged in — Duo was done once, by hand)        ~1 s
  2. Playwright connects to that browser (CDP)                                        ~0.5 s
  3. Read Canvas JSON with the browser's logged-in cookies (read-only):              ~2–5 s
       /api/v1/planner/items     → everything due, ALL courses, one call,

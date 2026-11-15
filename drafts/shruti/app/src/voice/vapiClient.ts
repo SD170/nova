@@ -63,7 +63,19 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
     // first presses SPACE. Without this the SDK boots with mic=open.
     try { vapi.setMuted(desiredMuted) } catch { /* ignore */ }
   })
-  // Vapi messages carry call.id; stash the latest so the task poller can target it.
+  // Vapi's 'message' event does NOT carry call.id (it's the server-sent payload
+  // only — transcript, speech-update, tool-calls, etc.). The call id lives on
+  // the Call object returned from vapi.start(), and we rescue a backup copy
+  // from any 'call-start-success' event emitted by SDK 3.x.
+  vapi.on('call-start-success', (e: any) => {
+    const cid = e?.callId ?? e?.call?.id
+    if (typeof cid === 'string' && cid) {
+      (window as any).__NOVA_CALL_ID__ = cid
+      console.info('[vapi] call id captured via call-start-success:', cid)
+    }
+  })
+  // Last-resort backstop: some SDK message types DO include call.id (e.g.
+  // status-update frames). Keep stashing the latest if present.
   vapi.on('message', (m: any) => {
     const cid = m?.call?.id ?? m?.callId
     if (typeof cid === 'string' && cid) (window as any).__NOVA_CALL_ID__ = cid
@@ -78,7 +90,13 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
       setTimeout(() => {
         if (!active && !userStopped) {
           console.info('[vapi] auto-reconnect after call-end')
-          vapi.start(assistantId).catch((e) =>
+          vapi.start(assistantId).then((call) => {
+            const cid = (call as any)?.id
+            if (typeof cid === 'string' && cid) {
+              (window as any).__NOVA_CALL_ID__ = cid
+              console.info('[vapi] call id captured via auto-reconnect:', cid)
+            }
+          }).catch((e) =>
             console.error('[vapi] auto-reconnect failed', e),
           )
         }
@@ -95,7 +113,12 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
       if (active) return
       userStopped = false
       try {
-        await vapi.start(assistantId)
+        const call = await vapi.start(assistantId)
+        const cid = (call as any)?.id
+        if (typeof cid === 'string' && cid) {
+          (window as any).__NOVA_CALL_ID__ = cid
+          console.info('[vapi] call id captured via start() return:', cid)
+        }
       } catch (e) {
         console.error('[vapi] start failed', e)
       }

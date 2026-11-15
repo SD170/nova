@@ -252,8 +252,6 @@ export function createHologramMaterial() {
         float fine = line(vRest.y * 28.0, 0.0) * 0.25;
         float grid = max(max(lat, lon), fine);
 
-        float scanY = mod(uScanPhase, 11.0) - 5.5;
-        float band = exp(-pow((vRest.y - scanY) / 0.16, 2.0));
         float flicker = 0.96 + 0.04 * sin(uTime * 37.0 + vRest.y * 11.0);
         // thinking shimmer: a slow soft wave of light rising from bottom to top
         float shimmer = uShimmer * 0.55 * pow(0.5 + 0.5 * sin(vRest.y * 1.4 - uTime * 1.6), 4.0);
@@ -264,7 +262,6 @@ export function createHologramMaterial() {
         col += mix(PURPLE, GRID, uTintAmount * 0.3) * grid * shadow * 0.55 * uBrightness;
         col += (GRID * 0.05 * lit + PURPLE * 0.10 * shadow) * uBrightness;
         col += rimCol * fres * 1.7;                                        // rim light
-        col += GRID * band * (0.35 + 0.9 * grid);
         // eyes: glow follows gaze, scales with openness, dims on blink
         float eyes = eyeGlow(uEyeXL, uEyeOpen.x) + eyeGlow(uEyeXR, uEyeOpen.y);
         col += GRID * eyes * 0.9 * uEyeGlow * uEyeIgnite; // neon green, same on both eyes
@@ -316,13 +313,7 @@ export function createHologramMaterial() {
         inside += VIOLET * tongueEdge * 0.12;
         col = mix(col, inside, cavity);
 
-        // lips: same grid as the face + a soft neon outline along the inner edge
-        // (where the lips meet / part) and the outer lip line
-        float lipX  = 1.0 - smoothstep(uMouthHalfW * 0.8, uMouthHalfW * 1.2, ax);
-        float inner = exp(-pow((seam - 0.95) / 0.32, 2.0));
-        float outer = exp(-pow((seam - 2.9) / 0.45, 2.0)) * 0.65;
-        vec3 LIPLINE = mix(vec3(0.224, 1.0, 0.078), VIOLET, 0.4);
-        col += LIPLINE * (inner + outer) * lipX * mz * (1.0 - cavity) * 0.5;
+        // lips: no overlay of any kind — exactly the same grid and colours as the face
 
         // glitch: chroma split + dropout flicker on random slices
         if (uGlitch > 0.001) {

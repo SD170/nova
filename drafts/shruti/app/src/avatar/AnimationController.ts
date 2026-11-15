@@ -122,6 +122,8 @@ export class AnimationController {
   private emph = 0
   private brow = 0
   private saccade = { x: 0, y: 0, tx: 0, ty: 0, next: 0.6 }
+  // cursor follow: target (-1..1, y+ = up) and a heavily smoothed position
+  private pointer = { tx: 0, ty: 0, x: 0, y: 0 }
   private scanPhase = 0
   private rise = 0
   private spin = 0
@@ -179,6 +181,12 @@ export class AnimationController {
 
   clearLook() {
     for (const s of this.looks) s.target = 0
+  }
+
+  /** Mouse position in -1..1 (x+ right, y+ up); null = cursor left the window → ease to center. */
+  setPointer(x: number | null, y = 0) {
+    this.pointer.tx = x === null ? 0 : Math.max(-1, Math.min(1, x))
+    this.pointer.ty = x === null ? 0 : Math.max(-1, Math.min(1, y))
   }
 
   playGesture({ name }: { name: string }) {
@@ -268,12 +276,21 @@ export class AnimationController {
     const bob = ex.bob * Math.abs(Math.sin(t * Math.PI * 4.2))
     const glitchJitter = ex.glitch > 0.01 ? (fbm(t * 9) * 0.05 + (Math.random() - 0.5) * 0.02) * ex.glitch : 0
 
-    // final = base + expression·weight + look (+ gesture)
+    // cursor follow: two smoothing stages → slow, natural turn (no snapping)
+    const pt = this.pointer
+    pt.x = approach(pt.x, pt.tx, dt, 0.9)
+    pt.y = approach(pt.y, pt.ty, dt, 0.9)
+    const followYaw = pt.x * 0.2 // ≈ 11°
+    const followPitch = -pt.y * 0.13 // ≈ 7.5°, cursor up → head tilts up
+
+    // final = base + expression·weight + look (+ gesture) + cursor follow
     o.yaw = fbm(m * 0.11) * 0.11 * amp + fbm(m * 0.6 + 40) * 0.025 * this.talk + base.yaw + ex.yaw + lookYaw + gYaw + glitchJitter
     o.pitch =
       fbm(m * 0.09 + 10) * 0.05 * amp + Math.sin(m * 1.4) * 0.004 - this.nod * 0.12 +
       base.pitch + ex.pitch - bob + lookPitch + gPitch
     o.roll = fbm(m * 0.07 + 20) * 0.04 * amp + base.roll + ex.roll + gRoll
+    o.yaw += followYaw
+    o.pitch += followPitch
     this.lean = approach(this.lean, base.lean, dt, 0.6)
     o.lean = this.lean
     o.breath = Math.sin((t / 4.6) * Math.PI * 2) * 0.05
@@ -310,8 +327,9 @@ export class AnimationController {
     sc.y = approach(sc.y, sc.ty, dt, 0.06)
     // eyes ride with the head, except while speaking: then they stay on the camera
     const onCam = this.baseW.speaking
-    o.eyeLook[0] = eyeX + base.eyeX + o.yaw * 1.2 * (1 - onCam) - o.yaw * 1.0 * onCam + sc.x
-    o.eyeLook[1] = eyeY + base.eyeY - o.pitch * 1.2 * (1 - onCam) + o.pitch * 1.0 * onCam + sc.y
+    // eyes lead the cursor a little more than the head does
+    o.eyeLook[0] = eyeX + base.eyeX + o.yaw * 1.2 * (1 - onCam) - o.yaw * 1.0 * onCam + sc.x + pt.x * 0.45
+    o.eyeLook[1] = eyeY + base.eyeY - o.pitch * 1.2 * (1 - onCam) + o.pitch * 1.0 * onCam + sc.y + pt.y * 0.35
 
     // ── color + fx
     o.gridColor = ex.tint

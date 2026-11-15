@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar3D, type Avatar3DHandle, type AvatarState } from './avatar/Avatar3D'
 import { installTestKeys } from './avatar/testKeys'
 import { bindVapi, createVoiceHooks } from './avatar/voiceBridge'
+import { toggleDemo } from './tasks/demo'
+import './tasks/tasks' // registers window.jarvisTasks
 import { DevPanel, Hint } from './ui/Controls'
+import { TaskPanel } from './ui/TaskPanel'
+import { BootTitle } from './ui/BootTitle'
+import { Hud } from './ui/Hud'
+import { presence } from './avatar/presence'
+import { installTaskChime, toggleMute, warmUpAudio } from './audio/chime'
 import { PushToTalk, type SpeechHandler } from './voice/pushToTalk'
 
 const params = new URLSearchParams(location.search)
@@ -11,6 +18,7 @@ const AVATAR_DEBUG = params.has('debug')
 // Dev builds (`npm run dev` or ?dev) answer with a sample clip when no backend is wired.
 const SHOW_DEV = import.meta.env.DEV || params.has('dev')
 const HINT_IDLE_MS = 4000
+const IDLE_DISSOLVE_MS = 2 * 60 * 1000 // no interaction for 2 min → head dissolves
 const DEV_SAMPLE = `${import.meta.env.BASE_URL}dev/sample-voice.m4a`
 
 declare global {
@@ -35,6 +43,8 @@ export default function App() {
   const [state, setState] = useState<AvatarState>('idle')
   const [debugOpen, setDebugOpen] = useState(false) // press D
   const [hintVisible, setHintVisible] = useState(true)
+  const [mode, setMode] = useState(presence.mode) // boot / awake / dissolving / dissolved / waking
+  useEffect(() => presence.subscribe(setMode), [])
 
   // Dev fallback reply (no backend yet): think briefly, then speak the sample clip.
   const playSample = useCallback(() => {
@@ -82,6 +92,7 @@ export default function App() {
       lookAt: (o) => avatarRef.current?.lookAt(o),
       playGesture: (o) => avatarRef.current?.playGesture(o),
       endThinking: () => avatarRef.current?.endThinking() ?? Promise.resolve(),
+      setPointer: (x, y) => avatarRef.current?.setPointer(x, y),
     }
     window.jarvisAvatar = api
     // VAPI HOOK POINT: where the Vapi client is created, call window.jarvisVoice.bindVapi(vapi)
@@ -97,9 +108,17 @@ export default function App() {
     // ── hold SPACE to talk (the only way to talk); D toggles the hidden debug panel
     const down = (e: KeyboardEvent) => {
       if (e.code === 'KeyD' && !e.repeat && !e.metaKey && !e.ctrlKey) setDebugOpen((v) => !v)
+      if (e.code === 'KeyT' && !e.repeat && !e.metaKey && !e.ctrlKey) toggleDemo() // demo tasks (again = reset)
+      if (e.code === 'KeyM' && !e.repeat && !e.metaKey && !e.ctrlKey) toggleMute() // task chime on/off
+      if (e.code === 'KeyI' && !e.repeat && !e.metaKey && !e.ctrlKey) presence.dissolve() // demo the idle dissolve
       if (e.code !== 'Space') return
       e.preventDefault()
-      if (!e.repeat) ptt.start()
+      if (e.repeat) return
+      // SPACE during the boot skips it; while dissolved it only wakes NOVA
+      if (presence.mode === 'boot') return presence.skipBoot()
+      if (presence.mode === 'dissolving' || presence.mode === 'dissolved') return presence.wake()
+      if (presence.busy) return // waking up — ignore until awake
+      ptt.start()
     }
     const up = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return
@@ -108,14 +127,45 @@ export default function App() {
     }
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
+    // head + eyes follow the cursor; recentre when it leaves the window
+    const move = (e: MouseEvent) => {
+      lastActivity = Date.now() // mouse movement keeps NOVA awake but never wakes it
+      avatarRef.current?.setPointer((e.clientX / window.innerWidth) * 2 - 1, 1 - (e.clientY / window.innerHeight) * 2)
+    }
+    // idle dissolve: 2 min of no interaction while idle and nothing running
+    let lastActivity = Date.now()
+    const activity = () => (lastActivity = Date.now())
+    const click = () => {
+      activity()
+      if (presence.mode === 'dissolving' || presence.mode === 'dissolved') presence.wake() // click wakes too
+    }
+    window.addEventListener('keydown', activity, true)
+    window.addEventListener('mousedown', click, true)
+    const idleTimer = setInterval(() => {
+      const busy = avatarRef.current?.getState() !== 'idle' || window.jarvisTasks.getTasks().some((t) => t.status === 'running')
+      if (busy) lastActivity = Date.now()
+      else if (presence.mode === 'awake' && Date.now() - lastActivity > IDLE_DISSOLVE_MS) presence.dissolve()
+    }, 1000)
+    const leave = (e: MouseEvent) => !e.relatedTarget && avatarRef.current?.setPointer(null)
+    window.addEventListener('mousemove', move)
+    document.addEventListener('mouseout', leave)
+    window.addEventListener('blur', () => avatarRef.current?.setPointer(null))
     const removeKeys = installTestKeys(() => avatarRef.current)
+    const removeChime = installTaskChime()
+    warmUpAudio() // during the black boot screen → no hitch on the first chime
 
     // mirror the avatar's state for the dev buttons
     const poll = setInterval(() => setState(avatarRef.current?.getState() ?? 'idle'), 150)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('keydown', activity, true)
+      window.removeEventListener('mousedown', click, true)
+      clearInterval(idleTimer)
+      document.removeEventListener('mouseout', leave)
       removeKeys()
+      removeChime()
       clearInterval(poll)
     }
   }, [ptt, playSample])
@@ -124,19 +174,24 @@ export default function App() {
 
   // hint: shown when idle, fades out after a few seconds; hidden while talking
   useEffect(() => {
-    if (state !== 'idle') {
+    if (state !== 'idle' || mode !== 'awake') {
       setHintVisible(false)
       return
     }
     setHintVisible(true)
     const id = setTimeout(() => setHintVisible(false), HINT_IDLE_MS)
     return () => clearTimeout(id)
-  }, [state])
+  }, [state, mode])
 
   return (
     <div className="fixed inset-0 bg-black">
       <Avatar3D ref={avatarRef} debug={AVATAR_DEBUG} getMicLevel={getMicLevel} />
       <Hint visible={hintVisible} />
+      <div className={`ui-layer ${mode === 'boot' ? 'ui-layer--hidden' : ''}`}>
+        <Hud />
+        <TaskPanel />
+      </div>
+      <BootTitle />
       {debugOpen && (
         <DevPanel
           state={state}

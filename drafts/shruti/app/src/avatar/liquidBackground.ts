@@ -24,6 +24,7 @@ export function createLiquidBackground() {
       uTime: { value: 0 },
       uAspect: { value: 1 },
       uFocus: { value: new THREE.Vector2(0.5, 0.58) }, // where the head is (uv)
+      uFade: { value: 1 }, // boot: fades in from black
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -33,7 +34,7 @@ export function createLiquidBackground() {
       }
     `,
     fragmentShader: /* glsl */ `
-      uniform float uTime, uAspect;
+      uniform float uTime, uAspect, uFade;
       uniform vec2 uFocus;
       varying vec2 vUv;
 
@@ -112,7 +113,7 @@ export function createLiquidBackground() {
         col *= mix(0.22, 1.0, smoothstep(0.08, 0.62, d));
         // The 3D pipeline converts its output to sRGB at the end; store linear here
         // so the colors land on screen exactly as the hex values above.
-        gl_FragColor = vec4(pow(col, vec3(2.2)), 1.0);
+        gl_FragColor = vec4(pow(col * uFade, vec3(2.2)), 1.0);
       }
     `,
   })
@@ -125,7 +126,8 @@ export function createLiquidBackground() {
   target.texture.magFilter = THREE.LinearFilter
 
   /** Re-render the silk for this frame (call before the main render). */
-  function render(gl: THREE.WebGLRenderer, time: number, width: number, height: number) {
+  function render(gl: THREE.WebGLRenderer, time: number, width: number, height: number, fade = 1) {
+    material.uniforms.uFade.value = fade
     const w = Math.max(64, Math.round(width * RES_SCALE))
     const h = Math.max(64, Math.round(height * RES_SCALE))
     if (target.width !== w || target.height !== h) target.setSize(w, h)

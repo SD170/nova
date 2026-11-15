@@ -30,6 +30,8 @@ import type { BaseState } from './expressions'
 import { createHologramMaterial, FACE } from './hologramMaterial'
 import { createSignalWaves, EARS } from './signalWaves'
 import { createLiquidBackground } from './liquidBackground'
+import { presence } from './presence'
+import { createDissolveParticles } from './dissolveParticles'
 import { createThinkingSymbols } from './thinkingSymbols'
 
 export type AvatarState = BaseState
@@ -47,6 +49,8 @@ export interface Avatar3DHandle {
   /** End 'thinking' and resolve once every thinking symbol has fully faded out
    *  (~0.6 s) — await this BEFORE playing the reply so nothing overlaps. */
   endThinking: () => Promise<void>
+  /** Cursor position -1..1 (x+ right, y+ up) for head/eye follow; null = recentre. */
+  setPointer: (x: number | null, y?: number) => void
 }
 
 interface Props {
@@ -73,6 +77,7 @@ export const Avatar3D = forwardRef<Avatar3DHandle, Props>(function Avatar3D(prop
     clearExpression: () => ctrl.clearExpression(),
     lookAt: (o) => ctrl.lookAt(o),
     playGesture: (o) => ctrl.playGesture(o),
+    setPointer: (x, y) => ctrl.setPointer(x, y),
     endThinking: () => {
       if (ctrl.getState() === 'thinking') {
         ctrl.setState('idle')
@@ -139,6 +144,7 @@ function Scene({ getMicLevel, debug, audio, ctrl }: Props & { audio: AvatarAudio
     return g!
   }, [gltf])
   const particles = useMemo(() => createParticles(), [])
+  const dust = useMemo(() => createDissolveParticles(geometry), [geometry]) // idle dissolve
   const signal = useMemo(() => createSignalWaves(), [])
   // thinking: ? ! and light-bulb symbols across the screen
   const symbols = useMemo(() => createThinkingSymbols(), [])
@@ -178,7 +184,8 @@ function Scene({ getMicLevel, debug, audio, ctrl }: Props & { audio: AvatarAudio
   useFrame(({ clock, gl, camera }, rawDt) => {
     const dt = Math.min(rawDt, 0.05)
     const t = clock.elapsedTime
-    background.render(gl, t, size.width * viewport.dpr, size.height * viewport.dpr)
+    const pf = presence.update(dt) // boot / dissolve / wake sequences
+    background.render(gl, t, size.width * viewport.dpr, size.height * viewport.dpr, pf.bgFade)
 
     // LAYER 3 input: mouth shape from audio only
     const mouth = audio.read(dt)
@@ -187,6 +194,13 @@ function Scene({ getMicLevel, debug, audio, ctrl }: Props & { audio: AvatarAudio
     const f = ctrl.update(dt, t, { level: mouth.level, active: audio.isActive() }, mic)
 
     applyFrame(f, mouth)
+    // presence (boot scanline, eye ignition, dissolve)
+    head.uniforms.uRevealOn.value = pf.revealOn
+    head.uniforms.uRevealY.value = pf.revealY
+    head.uniforms.uEyeIgnite.value = pf.eyeIgnite
+    head.uniforms.uDissolve.value = pf.dissolve
+    particles.material.uniforms.uFade.value = pf.bgFade
+    dust.update(pf.spread, pf.particleAlpha, t, gl.getPixelRatio())
     probe.mouth = mouth
     probe.symbolsAlpha = symbols.update(dt, f.thinking > 0.5, camera)
     particles.material.uniforms.uPx.value = gl.getPixelRatio()
@@ -255,6 +269,7 @@ function Scene({ getMicLevel, debug, audio, ctrl }: Props & { audio: AvatarAudio
       <mesh geometry={geometry} material={head} frustumCulled={false} />
       <points ref={points} geometry={particles.geometry} material={particles.material} frustumCulled={false} />
       <primitive object={symbols.root} />
+      <primitive object={dust.points} />
       <primitive object={signal.left} />
       <primitive object={signal.right} />
       <EffectComposer multisampling={0} enableNormalPass={false}>
@@ -292,6 +307,7 @@ function createParticles() {
       uCount: { value: 1 },
       uTint: { value: new THREE.Color(0.224, 1.0, 0.078) },
       uTintAmount: { value: 0 },
+      uFade: { value: 1 },
     },
     vertexShader: /* glsl */ `
       attribute float aSeed;
@@ -312,7 +328,7 @@ function createParticles() {
     `,
     fragmentShader: /* glsl */ `
       uniform vec3 uTint;
-      uniform float uTintAmount;
+      uniform float uTintAmount, uFade;
       varying float vSeed;
       varying float vTw;
       varying float vVis;
@@ -321,7 +337,7 @@ function createParticles() {
         float a = smoothstep(0.5, 0.0, d) * (0.35 + 0.65 * vTw) * vVis;
         vec3 c = vSeed > 0.82 ? uTint : mix(vec3(0.486, 0.227, 0.929), vec3(0.655, 0.545, 0.98), vSeed);
         c = mix(c, uTint, uTintAmount * 0.35);
-        gl_FragColor = vec4(c * a * 0.7, a); // faint, on top of the silk
+        gl_FragColor = vec4(c * a * 0.7 * uFade, a * uFade); // faint, on top of the silk
       }
     `,
   })

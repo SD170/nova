@@ -2,7 +2,7 @@
 //   1–9, 0  expressions (smile, laugh, angry, sad, surprised, confused, excited, wink, glitch, power_up)
 //   C       clear expression
 //   ← → ↑ ↓ lookAt left/right/up/down    U = user   H = shelf
-//   N / S / T  nod / shake / tilt
+//   N / S / G  nod / shake / tilt   (T = task demo, see App.tsx)
 //   Q / W / E / R  base state idle / listening / thinking / speaking
 import type { Avatar3DHandle } from './Avatar3D'
 import type { BaseState, ExpressionName } from './expressions'
@@ -10,7 +10,7 @@ import type { BaseState, ExpressionName } from './expressions'
 const EXPR_KEYS: ExpressionName[] = ['smile', 'laugh', 'angry', 'sad', 'surprised', 'confused', 'excited', 'wink', 'glitch', 'power_up']
 const STATE_KEYS: Record<string, BaseState> = { KeyQ: 'idle', KeyW: 'listening', KeyE: 'thinking', KeyR: 'speaking' }
 const LOOK_KEYS: Record<string, string> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', KeyU: 'user', KeyH: 'shelf' }
-const GESTURE_KEYS: Record<string, string> = { KeyN: 'nod', KeyS: 'shake', KeyT: 'tilt' }
+const GESTURE_KEYS: Record<string, string> = { KeyN: 'nod', KeyS: 'shake', KeyG: 'tilt' }
 
 export function installTestKeys(getAvatar: () => Avatar3DHandle | null) {
   const onKey = (e: KeyboardEvent) => {

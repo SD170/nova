@@ -1,4 +1,4 @@
-# Jarvis — holographic avatar (Shruti's draft)
+# NOVA — holographic avatar (Shruti's draft)
 
 Standalone desktop app (Electron + React + Vite + Three.js): a neon-grid holographic
 head & shoulders over an animated liquid-silk background, driven by push-to-talk.
@@ -101,9 +101,12 @@ been run against a live call yet.
 | C | clear expression |
 | ← → ↑ ↓ | lookAt left / right / up / down |
 | U / H | lookAt user / shelf |
-| N / S / T | gesture nod / shake / tilt |
+| N / S / G | gesture nod / shake / tilt |
+| T | task demo: 5 mock tasks (press again to reset) |
 | Q / W / E / R | state idle / listening / thinking / speaking |
 | D | toggle the debug panel |
+| M | mute / unmute the task-done chime (remembered) |
+| I | dissolve the head into particles (demo of the 2-min idle dissolve) |
 
 ## How the layers blend (`src/avatar/AnimationController.ts`)
 
@@ -137,6 +140,30 @@ Run `npm run build` first, then `npx electron .` with:
 - `JARVIS_SIZE=700x1000`: window size, for checking framing.
 - `JARVIS_QUERY=debug`: tints the face rig.
 
+## Presence: boot, HUD, idle
+
+- **Boot (~4 s):** black, then a scanline draws the grid face bottom to top, the eyes
+  ignite, "NOVA" types in and fades out, and the liquid background fades in.
+  **SPACE skips it.**
+- **Cursor follow:** the head (up to ~11°) and eyes turn subtly toward the mouse and
+  ease back when it leaves the window.
+- **Sound:** one soft Web Audio chime when a task finishes; nothing else. **M** mutes.
+- **HUD:** violet corner brackets, a status line
+  ("NOVA · ONLINE · n AGENTS ACTIVE", n = running tasks) and faint scanlines.
+- **Idle dissolve:** after 2 min with no interaction (while idle, nothing running),
+  or on **I**, the head crumbles into floating green and purple dust. **SPACE or a
+  click wakes it:** the particles rush back, the boot scanline redraws the face, and
+  the eyes ignite. Waking never starts listening; the next SPACE hold talks.
+  Mouse movement alone never wakes it.
+- Code: `src/avatar/presence.ts` (timeline), `dissolveParticles.ts`,
+  `src/ui/BootTitle.tsx`, `src/ui/Hud.tsx`, `src/audio/chime.ts`.
+
+## Tasks (top-right)
+
+A frosted-glass card shows the live task count; click it to open the stack of task
+cards. Teammates add and update tasks through `window.jarvisTasks`; see
+[`../TASKS_API.md`](../TASKS_API.md). Press **T** for a demo with mock tasks.
+
 ## Where things live
 
 | Effect | File |
@@ -144,6 +171,8 @@ Run `npm run build` first, then `npx electron .` with:
 | Liquid-silk background | `src/avatar/liquidBackground.ts` |
 | Push-to-talk recording | `src/voice/pushToTalk.ts` |
 | Hint, debug panel | `src/ui/Controls.tsx` |
+| Task data + API | `src/tasks/tasks.ts` (demo: `src/tasks/demo.ts`) |
+| Task UI (glass card + stack) | `src/ui/TaskPanel.tsx` |
 | Listening arcs | `src/avatar/signalWaves.ts` (timing in `AnimationController.ts`) |
 | Thinking symbols (? ! bulbs) | `src/avatar/thinkingSymbols.ts` |
 | Head shader / face rig | `src/avatar/hologramMaterial.ts` |

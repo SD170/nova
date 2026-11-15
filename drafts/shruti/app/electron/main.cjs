@@ -19,7 +19,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 480,
     backgroundColor: '#05030A',
-    title: 'Jarvis',
+    title: 'NOVA',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false,
     webPreferences: {

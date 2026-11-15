@@ -18,10 +18,17 @@ export const FACE = {
   mouthHalfW: 0.56,
   chinY: -0.35,
   hinge: new THREE.Vector2(1.05, -0.6), // (y, z) of the jaw hinge
-  eyeY: 1.75,
-  // the scan isn't perfectly symmetric: viewer's-left eye sits a bit further out
-  eyeXL: -0.84,
-  eyeXR: 0.75,
+  // Eyes mirror each other exactly around the face's real midline. The scan's
+  // face isn't centred at x = 0 — nose tip, bridge and chin all sit at x ≈ -0.115.
+  faceMidX: -0.115,
+  eyeHalf: 0.6, // centre of each eye, measured from the midline (centred in the eye openings)
+  eyeY: 1.68,
+  get eyeXL() {
+    return this.faceMidX - this.eyeHalf // viewer's left
+  },
+  get eyeXR() {
+    return this.faceMidX + this.eyeHalf // viewer's right
+  },
   eyeR: new THREE.Vector2(0.36, 0.2),
   neckPivot: new THREE.Vector3(0, -1.6, 0), // head turns around this point
 }
@@ -51,6 +58,11 @@ export function createHologramMaterial() {
       uScanPhase: { value: 0 },
       uGlitch: { value: 0 },
       uShimmer: { value: 0 }, // thinking: soft wave rising through the grid
+      // presence sequences (presence.ts): boot / wake scanline, eye ignition, dissolve
+      uRevealOn: { value: 1 },
+      uRevealY: { value: -4.1 },
+      uEyeIgnite: { value: 0 },
+      uDissolve: { value: 0 },
       // head pose
       uHeadRot: { value: new THREE.Matrix3() },
       uHeadOffset: { value: new THREE.Vector3() },
@@ -90,7 +102,7 @@ export function createHologramMaterial() {
       // squash/stretch one eye region toward its center line; open: 0 closed, 1 normal, >1 wide
       vec3 lid(vec3 p, vec3 rest, float cx, float open) {
         vec2 d = (rest.xy - vec2(cx, uEyeY)) / uEyeR;
-        float e = (1.0 - smoothstep(0.55, 1.0, length(d))) * smoothstep(1.2, 1.9, rest.z);
+        float e = (1.0 - smoothstep(0.55, 1.0, length(d))) * smoothstep(0.6, 1.1, rest.z); // same weight on both eyes
         float s = open < 1.0 ? mix(0.15, 1.0, open) : 1.0 + (open - 1.0) * 0.6;
         float shut = 1.0 - min(open, 1.0);
         p.y = mix(p.y, uEyeY + (p.y - uEyeY) * s - 0.02 * shut, e);
@@ -195,6 +207,7 @@ export function createHologramMaterial() {
     fragmentShader: /* glsl */ `
       uniform float uTime, uDebug, uJaw, uMouthY, uMouthHalfW, uEyeY, uEyeXL, uEyeXR;
       uniform float uEyeGlow, uTintAmount, uBrightness, uEnergy, uScanPhase, uGlitch, uShimmer;
+      uniform float uRevealOn, uRevealY, uEyeIgnite, uDissolve;
       uniform vec2 uEyeR, uEyeOpen, uEyeLook;
       uniform vec3 uGridColor;
       varying vec3 vRest;
@@ -214,9 +227,10 @@ export function createHologramMaterial() {
 
       float eyeGlow(float cx, float open) {
         vec2 c = vec2(cx, uEyeY) + uEyeLook * vec2(0.13, 0.07);
-        vec2 r = uEyeR * vec2(0.62, 0.62 * clamp(open, 0.05, 1.4));
+        vec2 r = uEyeR * vec2(0.6, 0.78 * clamp(open, 0.05, 1.4));
         float d = length((vRest.xy - c) / r);
-        return (1.0 - smoothstep(0.25, 1.0, d)) * smoothstep(1.2, 1.9, vRest.z) * smoothstep(0.05, 0.35, open);
+        // pure ellipse in rest space: identical size on both eyes (only a loose front mask)
+        return (1.0 - smoothstep(0.25, 1.0, d)) * smoothstep(0.6, 1.1, vRest.z) * smoothstep(0.05, 0.35, open);
       }
 
       void main() {
@@ -253,7 +267,7 @@ export function createHologramMaterial() {
         col += GRID * band * (0.35 + 0.9 * grid);
         // eyes: glow follows gaze, scales with openness, dims on blink
         float eyes = eyeGlow(uEyeXL, uEyeOpen.x) + eyeGlow(uEyeXR, uEyeOpen.y);
-        col += mix(GRID, vec3(1.0), 0.15) * eyes * (0.4 + 0.35 * facing) * uEyeGlow;
+        col += GRID * eyes * 0.9 * uEyeGlow * uEyeIgnite; // neon green, same on both eyes
 
         // ── mouth. The opening is triangles stretched between the lips; their
         // rest-space y stays in a thin band around the seam, so distance from the
@@ -320,6 +334,24 @@ export function createHologramMaterial() {
         }
 
         col *= flicker;
+
+        // ── boot / wake: a scanline sweeps bottom → top and DRAWS the face.
+        // Above the line: nothing. Just below: grid lines only (drawn "line by
+        // line" with a glow trail); the surface fills in a little later.
+        if (uRevealOn > 0.5) {
+          float d = uRevealY - vRest.y; // distance below the scanline
+          if (d < 0.0) discard;
+          float filled = smoothstep(0.15, 0.8, d);
+          col = mix(GRID * grid * 1.25, col, filled);
+          col += GRID * grid * exp(-d / 0.45) * 1.1;   // glowing trail behind the line
+          col += GRID * exp(-d / 0.035) * 1.6;          // the scanline itself
+        }
+        // ── idle dissolve: the surface breaks away in small blocks (particles take over)
+        if (uDissolve > 0.001) {
+          float n = hash(dot(floor(vRest * 20.0), vec3(1.0, 57.0, 113.0))); // fine pieces → crumbles like dust
+          if (n < uDissolve) discard;
+          col += mix(GRID, PURPLE * 1.4, fract(n * 7.0)) * smoothstep(uDissolve + 0.1, uDissolve, n) * 1.8;
+        }
         if (uDebug > 0.5) col = col * 0.6 + vec3(vJawW * 0.7, cavity, eyes * 0.5); // rig check
         gl_FragColor = vec4(col, 1.0);
       }

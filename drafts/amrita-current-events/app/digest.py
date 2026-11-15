@@ -8,7 +8,9 @@ Interest kinds:
   sports with a league and no team -> ESPN league feed
 
 Accuracy rules:
-  * only stories published in the last `window_hours` (default 24 = "today's news")
+  * only stories published after `cutoff` (the service passes local midnight = today's news),
+    or in the last `window_hours` when no cutoff is given
+  * newest first
   * keyword results from unknown sites are dropped unless trusted_only=False
   * the same story from different outlets is merged; `outlets` counts independent
     newsrooms reporting it and `confirmed` is true when 2+ did
@@ -152,7 +154,7 @@ def _cutoff(hours: int) -> str:
 
 
 async def build(interests: Optional[list[dict]] = None, per_topic: int = 5, since: Optional[str] = None,
-                window_hours: int = 24, trusted_only: bool = True) -> dict:
+                window_hours: int = 24, trusted_only: bool = True, cutoff: Optional[str] = None) -> dict:
     ints = normalize(interests)
     jobs, owners = [], []
     for it in ints:
@@ -173,9 +175,9 @@ async def build(interests: Optional[list[dict]] = None, per_topic: int = 5, sinc
             continue
         st["ok"] = True
         course = kind_of[owner] == "course"
-        cutoff = _cutoff(max(window_hours, COURSE_WINDOW) if course else window_hours)
+        oldest = _cutoff(COURSE_WINDOW) if course else (cutoff or _cutoff(window_hours))
         for item in res:
-            if not item.published_at or item.published_at < cutoff:
+            if not item.published_at or item.published_at < oldest:
                 continue  # current only: nothing stale, nothing undated
             if trusted_only and not item.provider.endswith("RSS") and not outlets.is_trusted(item.source) \
                     and not (course and ACADEMIC.search(item.source)):
@@ -190,7 +192,7 @@ async def build(interests: Optional[list[dict]] = None, per_topic: int = 5, sinc
     for s in stories:
         s["topic"] = min(s.pop("_topics"), key=lambda t: (-s["_votes"][t], order[t]))
         s.pop("_votes")
-    stories.sort(key=lambda s: (s["outlets"], s["published_at"] or ""), reverse=True)
+    stories.sort(key=lambda s: s["published_at"] or "", reverse=True)  # newest first
     final: list[dict] = []
     for it in ints:
         kept = [s for s in stories if s["topic"] == it["label"]][:per_topic]

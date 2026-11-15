@@ -11,10 +11,10 @@ Code: `drafts/amrita-current-events/` (FastAPI, port **9004** — the `news_*` s
 - ✅ **Tool catalog** (6 tools) — every capability is one tool call, also exposed as a plain HTTP endpoint (Abishek's pattern) and as OpenAI-style function definitions at `GET /tools`.
 - ✅ **News from 16 newsrooms + news search**, no keys needed; 5 keyed news APIs switch on automatically when a key is added.
 - ✅ **ASU events** from ASU's own public feeds (official calendar + Sun Devil Central student orgs).
-- ✅ **Accuracy rules**: last 24 h only, trusted newsrooms only (default), same story across outlets merged → "confirmed by N outlets".
+- ✅ **Accuracy rules**: today's news only (since the student's local midnight), newest first, trusted newsrooms only (default), same story across outlets merged → "confirmed by N outlets".
 - ✅ **Phone push alerts** per student's interests (Web Push / PWA), confirmed stories only, quiet hours. Tested through a real push service.
 - ✅ **UI tool file** `client/newsTools.ts` + React hooks `client/useNews.ts` — typed, live data by default (≤60 s old).
-- ✅ 34 offline tests (network faked).
+- ✅ 36 offline tests (network faked).
 - ⏳ Public HTTPS tunnel for `:9004` (needed for phones + remote brain) — not started on my machine yet.
 
 ## Decisions (locked)
@@ -31,13 +31,14 @@ Code: `drafts/amrita-current-events/` (FastAPI, port **9004** — the `news_*` s
 | Brain tool | Method + path | Returns |
 |---|---|---|
 | `get_available_topics()` | `GET /topics` | `{sections: [{id, label, outlets[]}], custom_topics, examples}` |
-| `fetch_news(topics, since_hours=24, trusted_only=true, per_topic=5, live=false)` | `GET /news?topics=world,Phoenix Suns,AI policy` | `{topics, count, links: [url...], items: [NewsItem], by_topic, speak}` |
+| `fetch_news(topics, since_hours?, tz_offset_minutes?, trusted_only=true, per_topic=5, live=false)` | `GET /news?topics=world,Phoenix Suns,AI policy` | `{topics, count, links: [url...], items: [NewsItem], by_topic, speak}` |
 | `fetch_asu_events(days=7, query?, campus?, limit=25, live=false)` | `GET /events?days=7&query=career fair` | `{count, links: [url...], items: [Event], sources, speak}` |
 | `get_news_item(item_id)` | `GET /news/item/{id}` | one `NewsItem` + `text` (article text when the publisher allows) — 404 `item_not_found` |
 | `dedupe_news(items)` | `POST /news/dedupe` body `[{id, title, source, url}]` | `{clusters: [{lead_id, ids, sources, outlets, confirmed}]}` |
 | `get_news_health()` | `GET /health` | `{ok, tools, keyed_sources, cached_stories, push_subscribers, auth_required}` |
 | (Saswata's contract name) | `GET /news/candidates?topics=...&since=24h` | same as `fetch_news`, up to 15 per topic (raw pool for ranking) |
 
+Default window = **today** in the student's timezone (Arizona unless `tz_offset_minutes` is sent), newest first, each item has `age_minutes`; `since_hours` = rolling window instead.
 `live=true` → fetched right now (never older than 60 s) instead of the 15-min cache; use for "latest" / "breaking".
 
 Tool-call routes (if the brain prefers one URL): `GET /tools` (function definitions), `POST /tools/call {name, arguments}`, `POST /tools/vapi` (Vapi tool-calls envelope).
@@ -137,7 +138,7 @@ cd drafts/amrita-current-events
 python -m venv .venv && .venv/Scripts/activate        # macOS: source .venv/bin/activate
 pip install -r requirements.txt && cp .env.example .env
 uvicorn app.main:app --port 9004                       # docs: http://localhost:9004/docs
-pytest                                                 # 34 tests, no network
+pytest                                                 # 36 tests, no network
 ```
 
 ## Handoffs

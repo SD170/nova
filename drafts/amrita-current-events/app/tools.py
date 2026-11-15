@@ -46,7 +46,8 @@ TOOL_DEFINITIONS: list[dict] = [
                 "type": "object",
                 "properties": {
                     "topics": {"type": "string", "description": "Comma-separated, e.g. \"world, Phoenix Suns, AI policy\""},
-                    "since_hours": {"type": "integer", "description": "How far back, 1-72. Default 24 (today).", "default": 24},
+                    "since_hours": {"type": "integer", "description": "Omit for TODAY's news (since midnight in the student's timezone, newest first). Set 1-72 only for a rolling 'last N hours' window."},
+                    "tz_offset_minutes": {"type": "integer", "description": "Student's UTC offset in minutes (Arizona = -420). Defines when 'today' starts. Default Arizona."},
                     "trusted_only": {"type": "boolean", "description": "Only established newsrooms. Default true.", "default": True},
                     "live": {"type": "boolean", "description": "true = fetch right now (data at most 60 s old) instead of the 15-min cache. Use when the student asks for the latest/breaking news.", "default": False},
                     "per_topic": {"type": "integer", "description": "Max stories per topic, 1-15. Default 5.", "default": 5},
@@ -127,6 +128,13 @@ def _args(arguments: Any) -> dict:
     return dict(arguments or {})
 
 
+def _int_or_none(v: Any):
+    try:
+        return None if v is None or v == "" else int(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _bool(v: Any) -> bool:
     return v.strip().lower() in ("1", "true", "yes") if isinstance(v, str) else bool(v)
 
@@ -142,7 +150,8 @@ async def call(name: str, arguments: Any = None) -> dict:
         if not topics or not str(topics).strip():
             raise ToolError(422, "topics is required, e.g. \"world, Phoenix Suns, AI\"")
         out = await service.fetch_news(topics, a.get("since_hours"), _bool(a.get("trusted_only", True)),
-                                       int(a.get("per_topic") or 5), _bool(a.get("live")))
+                                       int(a.get("per_topic") or 5), _bool(a.get("live")),
+                                       _int_or_none(a.get("tz_offset_minutes")))
         return out.model_dump()
     if name == "fetch_asu_events":
         return await events.fetch(days=max(1, min(int(a.get("days") or 7), 60)), query=str(a.get("query") or ""),

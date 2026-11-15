@@ -67,10 +67,12 @@ async def get_available_topics():
 
 @app.get("/news", dependencies=[Depends(require_key)])
 async def fetch_news(topics: str = Query(..., description="Comma-separated, e.g. world, Phoenix Suns, AI"),
-                     since_hours: int = Query(24, ge=1, le=72), trusted_only: bool = True,
+                     since_hours: Optional[int] = Query(None, ge=1, le=72, description="omit = today's news (since local midnight)"),
+                     tz_offset_minutes: Optional[int] = Query(None, ge=-840, le=840, description="student's UTC offset; Arizona -420"),
+                     trusted_only: bool = True,
                      per_topic: int = Query(5, ge=1, le=15),
                      live: bool = Query(False, description="true = fetch now (≤60 s old) instead of the 15-min cache")):
-    return await _run("fetch_news", {"topics": topics, "since_hours": since_hours,
+    return await _run("fetch_news", {"topics": topics, "since_hours": since_hours, "tz_offset_minutes": tz_offset_minutes,
                                      "trusted_only": trusted_only, "per_topic": per_topic, "live": live})
 
 

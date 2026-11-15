@@ -28,6 +28,7 @@ class NewsItem(BaseModel):
     source: str                   # outlet, e.g. "NPR"
     published_at: Optional[str]   # UTC ISO-8601
     topic: str                    # which requested topic it belongs to
+    age_minutes: Optional[int] = None  # minutes since published, at generated_at
     outlets: int = 1              # independent newsrooms reporting this story
     confirmed: bool = False       # outlets >= 2
     also_reported_by: list[dict] = Field(default_factory=list)  # [{source, url}]
@@ -47,7 +48,9 @@ class TopicStatus(BaseModel):
 class NewsOut(BaseModel):
     generated_at: str
     topics: list[str]
-    since_hours: int
+    since_hours: int              # hours the window covers
+    window: str = "today"         # "today" (since local midnight) or "last N hours"
+    window_start: str = ""        # UTC ISO: nothing older than this is returned
     trusted_only: bool
     data_source: DataSource = "live"
     count: int

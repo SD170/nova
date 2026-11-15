@@ -89,3 +89,28 @@ def test_fetch_news_cache_serves_instantly_then_refreshes(monkeypatch):
     monkeypatch.setattr(sources, "TRANSPORT", httpx.MockTransport(lambda r: httpx.Response(500)))
     again = asyncio.run(service.fetch_news("world"))  # fresh cache: no network needed
     assert again.count == first.count > 0
+
+
+def test_default_window_is_today_in_students_timezone():
+    from datetime import datetime, timezone
+    import app.service as svc
+    nw = svc._real_news_window
+    # 10:51 AM Arizona (17:51 UTC): today started at 07:00 UTC
+    w = nw(None, -420, now=datetime(2026, 11, 15, 17, 51, tzinfo=timezone.utc))
+    assert w["start"] == "2026-11-15T07:00:00Z" and w["label"] == "today (2026-11-15)"
+    # New York (-300) has a different midnight
+    assert nw(None, -300, now=datetime(2026, 11, 15, 17, 51, tzinfo=timezone.utc))["start"] == "2026-11-15T05:00:00Z"
+    # 00:34 AM Arizona: "today" is 34 min old, so show the last 2 hours instead of nothing
+    early = nw(None, -420, now=datetime(2026, 11, 15, 7, 34, tzinfo=timezone.utc))
+    assert early["start"] == "2026-11-15T05:34:00Z" and "just after midnight" in early["label"]
+    # explicit since_hours = rolling window
+    assert nw(6, -420, now=datetime(2026, 11, 15, 17, 0, tzinfo=timezone.utc))["start"] == "2026-11-15T11:00:00Z"
+
+
+def test_newest_first_with_age_minutes():
+    out = asyncio.run(service.fetch_news("world, Loans, NBA"))
+    for topic in out.topics:
+        times = [i.published_at for i in out.items if i.topic == topic]
+        assert times == sorted(times, reverse=True)
+    assert all(i.age_minutes is not None and i.age_minutes >= 0 for i in out.items)
+    assert out.window and out.window_start

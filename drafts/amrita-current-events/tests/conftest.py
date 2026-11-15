@@ -99,6 +99,12 @@ def handler(request: httpx.Request) -> httpx.Response:
 @pytest.fixture(autouse=True)
 def fake_network(monkeypatch):
     monkeypatch.setattr(sources, "TRANSPORT", httpx.MockTransport(handler))
+    # Fixture stories are 1-3 h old; pin "today" to a rolling 24 h so tests don't depend on the clock.
+    # news_window itself is tested with fixed times in test_news.py.
+    import app.service as svc
+    real = svc.news_window
+    monkeypatch.setattr(svc, "news_window", lambda h=None, tz=None, now=None: real(h or 24, tz, now))
+    monkeypatch.setattr(svc, "_real_news_window", real, raising=False)
     for k in ("NEWSAPI_KEY", "GNEWS_API_KEY", "NEWSDATA_API_KEY", "GUARDIAN_API_KEY", "NYT_API_KEY"):
         monkeypatch.delenv(k, raising=False)
     sources.clear_cache()

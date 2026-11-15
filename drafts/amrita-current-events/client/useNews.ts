@@ -30,7 +30,7 @@ export function useLiveNews(
   refresh: () => void
 } {
   const key = Array.isArray(topics) ? topics.join(',') : topics
-  const { intervalMs, sinceHours, trustedOnly, perTopic } = opts
+  const { intervalMs, sinceHours, tzOffsetMinutes, trustedOnly, perTopic } = opts
   const onNewRef = useRef(opts.onNewStories)
   onNewRef.current = opts.onNewStories
 
@@ -57,6 +57,7 @@ export function useLiveNews(
       {
         intervalMs,
         sinceHours,
+        tzOffsetMinutes,
         trustedOnly,
         perTopic,
         onError: (e) => {
@@ -69,7 +70,7 @@ export function useLiveNews(
         },
       },
     )
-  }, [key, intervalMs, sinceHours, trustedOnly, perTopic, nonce])
+  }, [key, intervalMs, sinceHours, tzOffsetMinutes, trustedOnly, perTopic, nonce])
 
   const refresh = useCallback(() => setNonce((n) => n + 1), [])
   return { news, loading, error, newStories, refresh }

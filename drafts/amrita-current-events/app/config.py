@@ -27,6 +27,8 @@ class Settings:
     api_key: str = os.environ.get("NEWS_AGENT_API_KEY", "")
     port: int = int(os.environ.get("NEWS_PORT", "9004"))
     cache_ttl_minutes: int = int(os.environ.get("NEWS_CACHE_TTL_MINUTES", "15"))
+    # Student's UTC offset for "today" when the caller doesn't send one. Arizona = -420 (no DST).
+    tz_offset_minutes: int = int(os.environ.get("NEWS_TZ_OFFSET_MINUTES", "-420"))
     default_since_hours: int = int(os.environ.get("NEWS_SINCE_HOURS", "24"))
     per_topic_max: int = int(os.environ.get("NEWS_PER_TOPIC_MAX", "15"))
     # Browser origins allowed to call the tools: team UI dev server + Electron ("null" = file://).

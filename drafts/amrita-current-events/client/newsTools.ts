@@ -1,6 +1,8 @@
 /**
  * newsTools.ts — drop-in client for Amrita's news + ASU events service (port 9004).
  *
+ * News is TODAY's news by default (since midnight in the student's own timezone), newest first.
+ *
  * Copy this file into the UI (e.g. src/tools/newsTools.ts). No dependencies; works in
  * the browser, Electron and Node 18+. Every function returns LIVE data from the service.
  *
@@ -27,6 +29,7 @@ export interface NewsItem {
   source: string // outlet, e.g. "NPR"
   published_at: string | null // UTC ISO-8601
   topic: string // which requested topic it belongs to
+  age_minutes: number | null // minutes since published (at generated_at) — show "12 min ago"
   outlets: number // independent newsrooms reporting this story
   confirmed: boolean // true when 2+ outlets report it
   also_reported_by: { source: string; url: string }[]
@@ -46,12 +49,14 @@ export interface TopicStatus {
 export interface NewsResult {
   generated_at: string // when this data was fetched (UTC)
   topics: string[]
-  since_hours: number
+  since_hours: number // hours the window covers
+  window: string // "today (2026-11-15)" | "last N hours"
+  window_start: string // UTC ISO — nothing older than this is returned
   trusted_only: boolean
   data_source: 'live' | 'demo'
   count: number
   links: string[]
-  items: NewsItem[]
+  items: NewsItem[] // newest first within each topic
   by_topic: TopicStatus[]
   speak: string // one-sentence summary for TTS
 }
@@ -130,8 +135,10 @@ export interface NewsHealth {
 export interface FetchNewsOptions {
   /** true = fetched right now (at most 60 s old). false = may be up to 15 min old, but instant. Default true. */
   live?: boolean
-  /** Only stories from the last N hours (1–72). Default 24. */
+  /** Leave unset for TODAY's news (since the student's local midnight). Set 1–72 for a rolling "last N hours". */
   sinceHours?: number
+  /** Student's UTC offset in minutes (Arizona = -420). Default: this device's timezone. */
+  tzOffsetMinutes?: number
   /** Only established newsrooms. Default true. */
   trustedOnly?: boolean
   /** Max stories per topic (1–15). Default 5. */
@@ -179,6 +186,11 @@ export class NewsToolError extends Error {
 export function topicsToString(topics: string | string[]): string {
   const list = Array.isArray(topics) ? topics : topics.split(',')
   return list.map((t) => t.trim()).filter(Boolean).join(',')
+}
+
+/** This device's UTC offset in minutes (Arizona -> -420), so "today" matches the student's clock. */
+export function deviceTzOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset()
 }
 
 async function request<T>(path: string, init: RequestInit & { signal?: AbortSignal } = {}): Promise<T> {
@@ -229,6 +241,7 @@ export function fetchNews(topics: string | string[], opts: FetchNewsOptions = {}
         topics: t,
         live: opts.live ?? true,
         since_hours: opts.sinceHours,
+        tz_offset_minutes: opts.tzOffsetMinutes ?? deviceTzOffsetMinutes(),
         trusted_only: opts.trustedOnly,
         per_topic: opts.perTopic,
       }),
@@ -345,8 +358,9 @@ export type NewsToolName =
 
 /** Run any tool by name with the model's arguments (object or JSON string). Live by default. */
 export async function callNewsTool(name: NewsToolName | string, args: Record<string, unknown> | string = {}) {
-  const a = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : args
+  const a: Record<string, unknown> = typeof args === 'string' ? (args.trim() ? JSON.parse(args) : {}) : { ...args }
   if (['fetch_news', 'fetch_asu_events'].includes(name) && a.live === undefined) a.live = true
+  if (name === 'fetch_news' && a.tz_offset_minutes === undefined) a.tz_offset_minutes = deviceTzOffsetMinutes()
   const out = await request<{ name: string; result: unknown }>('/tools/call', {
     method: 'POST',
     body: JSON.stringify({ name, arguments: a }),

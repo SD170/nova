@@ -17,7 +17,7 @@ cp .env.example .env                                 # works with every key blan
 uvicorn app.main:app --port 9004                     # docs: http://localhost:9004/docs
 ```
 Student page with phone alerts: http://localhost:9004/
-**Tests:** `pytest` (34 tests, network faked).
+**Tests:** `pytest` (36 tests, network faked).
 
 ## Use it from the UI (TypeScript, no visual included)
 
@@ -29,7 +29,7 @@ import { useLiveNews, useAsuEvents } from './tools/useNews'
 
 const news = await fetchNews('world, Phoenix Suns, AI policy')   // live: fetched now, ≤60 s old
 news.links                     // every article URL
-news.items                     // {title, url, source, published_at, topic, confirmed, outlets, summary}
+news.items                     // today's stories, newest first: {title, url, source, published_at, age_minutes, topic, confirmed, ...}
 news.speak                     // one sentence for TTS
 
 const { news, loading, error, newStories } = useLiveNews(studentTopics)   // auto-refresh every 60 s
@@ -50,7 +50,7 @@ Auth: if `NEWS_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every tool e
 | Tool | Method + path | Returns |
 |---|---|---|
 | `get_available_topics` | `GET /topics` | sections with their newsrooms + how custom topics work |
-| `fetch_news` | `GET /news?topics=world,Phoenix Suns,AI policy&since_hours=24&live=true` | `{count, links: [...], items: [...], by_topic, speak}` |
+| `fetch_news` | `GET /news?topics=world,Phoenix Suns,AI policy&live=true&tz_offset_minutes=-420` | `{count, links: [...], items: [...], by_topic, speak}` |
 | `fetch_asu_events` | `GET /events?days=7&query=career fair&campus=Tempe&live=true` | `{count, links: [...], items: [...], sources, speak}` |
 | `get_news_item` | `GET /news/item/{id}` | one story + article text (when the publisher allows) |
 | `dedupe_news` | `POST /news/dedupe` | clusters of the same story across outlets |
@@ -68,7 +68,7 @@ curl -X POST localhost:9004/tools/call -H "Content-Type: application/json" \
 
 ## Accuracy rules
 
-1. Last 24 hours only (`since_hours`, max 72); undated stories dropped.
+1. **Today's news only** — since midnight in the student's timezone (`tz_offset_minutes`, default Arizona; the TS client sends the device's). Newest first, each story has `age_minutes`. Right after midnight it shows the last 2 hours instead of nothing. `since_hours=N` switches to a rolling window. Undated stories dropped.
 2. Trusted newsrooms only by default (`trusted_only=false` to widen); newsroom RSS feeds are trusted by definition.
 3. The same story from several outlets is merged → `outlets` count, `confirmed` when 2+, `also_reported_by` links.
 4. Every story and event has `url` to the original page. Failed sources are reported (`ok: false`), never filled in.
@@ -107,7 +107,7 @@ app/
   config.py       env settings
 client/           newsTools.ts (typed tool client for the UI) + useNews.ts (React hooks)
 static/           optional student page (PWA): index.html, app.js, style.css, sw.js, manifest, icons
-tests/unit, tests/api, tests/conftest.py   34 tests, no network
+tests/unit, tests/api, tests/conftest.py   36 tests, no network
 ```
 
 ## Public URL (Cloudflare quick tunnel, same as browser-agent)

@@ -58,7 +58,7 @@ def normalize(interests: Optional[list[dict]]) -> list[dict]:
     return out
 
 
-def _fetchers(it: dict, per: int):
+def _fetchers(it: dict, per: int, window_hours: int = 24):
     label, q, section = it["label"], it["query"], it["section"]
     if it["kind"] == "section":
         for name, url in outlets.FEEDS[section]:
@@ -72,7 +72,9 @@ def _fetchers(it: dict, per: int):
     if it["kind"] == "sports" and it.get("league") in sources.ESPN_LEAGUES and is_whole_league:
         yield sources.espn_news(it["league"], label, per)
         return
-    yield sources.google_news(q, label, per * 2)
+    hours = max(window_hours, COURSE_WINDOW) if it["kind"] == "course" else window_hours
+    when = f"{max(1, -(-hours // 24))}d"  # ceil(hours / 24) days
+    yield sources.google_news(q, label, max(per * 4, 20), when)
     for fn in outlets.keyed_fetchers():
         yield fn(label, q, None, per)
 
@@ -154,7 +156,7 @@ async def build(interests: Optional[list[dict]] = None, per_topic: int = 5, sinc
     ints = normalize(interests)
     jobs, owners = [], []
     for it in ints:
-        for coro in _fetchers(it, max(per_topic, 6)):
+        for coro in _fetchers(it, max(per_topic, 6), window_hours):
             jobs.append(_bounded(coro))
             owners.append(it["label"])
     results = await asyncio.gather(*jobs, return_exceptions=True)

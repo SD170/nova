@@ -116,15 +116,16 @@ def clear_cache() -> None:
     _CACHE.clear()
 
 
-async def google_news(query: str, topic: str, limit: int = 6) -> list[Item]:
+async def google_news(query: str, topic: str, limit: int = 6, when: str = "7d") -> list[Item]:
+    """`when` limits Google News to recent stories (1d = today). Results are relevance-ordered."""
     async def fetch() -> list[Item]:
-        q = urllib.parse.quote_plus(f"{query} when:7d")
+        q = urllib.parse.quote_plus(f"{query} when:{when}")
         url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
         async with client() as c:
             r = await c.get(url)
         r.raise_for_status()
         return _parse_rss(r.content, topic, limit)
-    return await _cached(f"gn:{query}:{limit}", fetch)
+    return await _cached(f"gn:{query}:{limit}:{when}", fetch)
 
 
 GOOGLE_SECTIONS = ("WORLD", "NATION", "BUSINESS", "TECHNOLOGY", "ENTERTAINMENT", "SPORTS", "SCIENCE", "HEALTH")

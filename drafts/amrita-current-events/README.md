@@ -1,68 +1,93 @@
-# Current events & phone news alerts (Amrita's draft)
+# News & ASU events tools (Amrita)
 
-Owner: Amrita (AmritaSeeram). Today's news for students — politics, world, science, tech, education, sports, their teams, their course subjects, anything they add — as a web page, a spoken digest for Jarvis, and **push notifications on their phone** matched to their interests.
+Today's accurate news for each student's interests, ASU campus events, and phone news alerts — as **tool calls** for the Jarvis brain on **port 9004** (the `news_*` slot in the locked design).
+Full design, tool catalog and source list for teammates: `context/amrita.md`.
 
-## Accuracy first
+## Owner
 
-- **Today only:** stories from the last 24 hours. Undated stories are dropped. Course topics look back 3 days, since research news moves slower.
-- **Straight from newsrooms:** RSS feeds from NPR, BBC, The New York Times, PBS NewsHour, The Guardian, CBS, ABC, Al Jazeera, The Washington Post, ESPN, BBC Sport, Nature, ScienceDaily, Inside Higher Ed, Ars Technica and The Verge (each feed checked live).
-- **Trusted only (default on):** keyword search results (Google News and the keyed APIs) only count if they come from an established newsroom, or a university newsroom for course topics.
-- **Cross-checked:** the same story from different outlets is merged, so each story shows **"Confirmed by N outlets"** or **"Single source so far"**, with links to every version.
-- **Alerts only for confirmed stories:** phone notifications are only sent for stories that 2 or more outlets have reported.
-- Every item links to the original article.
+Amrita (GitHub: AmritaSeeram)
 
-## Sources and keys
-
-Works with **no keys**. Each key added to `.env` switches on another provider automatically (see `.env.example`):
-
-| Provider | Key | Free tier |
-|---|---|---|
-| Newsroom RSS feeds (16 outlets) | none | unlimited |
-| Google News search | none | — |
-| ESPN league feeds | none | — |
-| The Guardian Open Platform | `GUARDIAN_API_KEY` | free developer key |
-| New York Times Top Stories | `NYT_API_KEY` | free |
-| GNews | `GNEWS_API_KEY` | 100 requests/day |
-| NewsData.io | `NEWSDATA_API_KEY` | 200 credits/day |
-| NewsAPI.org | `NEWSAPI_KEY` | free plan is localhost-only |
-
-## Phone notifications (Web Push)
-
-- **Android (Chrome):** open the site and tap **Get phone alerts**.
-- **iPhone (iOS 16.4+):** open in Safari, tap Share, choose **Add to Home Screen**, open *Jarvis News* from the home screen, then tap **Get phone alerts**.
-- New subscribers get one welcome alert (today's top confirmed story). After that, the server checks each subscriber's personal digest every 10 minutes (`PUSH_INTERVAL_SECONDS`) and sends up to 3 **new confirmed** stories.
-- Nothing is sent during quiet hours (default 10pm to 7am, the student's local time; adjustable on the page).
-- Changing interests or the trusted toggle on the page updates that phone's alerts.
-- The push signing keys are generated locally on first run (`.vapid_private.pem`). Subscriptions are stored in `subscriptions.json`. Both are gitignored, and no push account or signup is needed.
-- **The phone needs an HTTPS address.** Phones only allow push on secure sites, and they can't open `localhost`. Use the team's deployed host, or a tunnel while testing:
-  `cloudflared tunnel --url http://localhost:9003` (Cloudflare quick tunnel; it prints an `https://….trycloudflare.com` link to open on the phone).
-  Subscriptions are tied to the site address, so if the tunnel URL changes, turn alerts on again.
-
-## Run
+## Run locally
 
 ```bash
 cd drafts/amrita-current-events
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # macOS/Linux: .venv/bin/python
-.venv/Scripts/python server.py        # http://localhost:9003
-.venv/Scripts/python -m pytest        # 15 offline tests (network and push are faked)
+python -m venv .venv && .venv/Scripts/activate      # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env                                 # works with every key blank
+uvicorn app.main:app --port 9004                     # docs: http://localhost:9004/docs
+```
+Student page with phone alerts: http://localhost:9004/
+**Tests:** `pytest` (31 tests, network faked).
+
+## Tools (port 9004)
+
+Auth: if `NEWS_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every tool endpoint (`/health`, the page and push routes stay open).
+
+| Tool | Method + path | Returns |
+|---|---|---|
+| `get_available_topics` | `GET /topics` | sections with their newsrooms + how custom topics work |
+| `fetch_news` | `GET /news?topics=world,Phoenix Suns,AI policy&since_hours=24` | `{count, links: [...], items: [...], by_topic, speak}` |
+| `fetch_asu_events` | `GET /events?days=7&query=career fair&campus=Tempe` | `{count, links: [...], items: [...], sources, speak}` |
+| `get_news_item` | `GET /news/item/{id}` | one story + article text (when the publisher allows) |
+| `dedupe_news` | `POST /news/dedupe` | clusters of the same story across outlets |
+| `get_news_health` | `GET /health` | tools, keyed sources on/off, cache, subscribers |
+| (contract alias) | `GET /news/candidates?topics=…&since=24h` | raw pool for the brain to rank |
+
+One-URL tool calling: `GET /tools` (OpenAI-style function definitions) · `POST /tools/call {"name": "fetch_news", "arguments": {"topics": "world, tech"}}` · `POST /tools/vapi` (Vapi tool-calls envelope).
+
+Example:
+```bash
+curl "http://localhost:9004/news?topics=world,Phoenix%20Suns,AI%20policy"
+curl -X POST localhost:9004/tools/call -H "Content-Type: application/json" \
+     -d '{"name":"fetch_asu_events","arguments":{"days":7,"query":"career"}}'
 ```
 
-## API
+## Accuracy rules
 
-- `POST /news/digest`: `{interests?, per_topic?, since?, window_hours?=24, trusted_only?=true}` returns `{items: [{id, title, url, source, published_at, topic, outlets, confirmed, also_reported_by, summary}], speak, sources, keys, ...}`. An interest is `{label, kind: section|topic|sports|course|tech, section?, query?, league?}`, where section is one of top, politics, world, science, tech, education, sports, business or health.
-- `GET /news/digest?topics=world,Phoenix Suns,AI`: quick form. Section names map to newsroom feeds; anything else is a keyword search.
-- `GET /news/interests`: default demo interests.
-- Push: `GET /push/public-key`, `POST /push/subscribe`, `POST /push/unsubscribe`, `POST /push/test`, `GET /push/status`.
-- `POST /news/tools`: voice-assistant (Vapi-style) webhook for `get_news_digest`. Docs at `/news/docs`.
+1. Last 24 hours only (`since_hours`, max 72); undated stories dropped.
+2. Trusted newsrooms only by default (`trusted_only=false` to widen); newsroom RSS feeds are trusted by definition.
+3. The same story from several outlets is merged → `outlets` count, `confirmed` when 2+, `also_reported_by` links.
+4. Every story and event has `url` to the original page. Failed sources are reported (`ok: false`), never filled in.
 
-## Orchestrator / voice hook
+## Sources
 
-```python
-from news.tools import NEWS_TOOLS   # same fn(args) -> dict shape as apps/voice/server.py mock tools
-TOOLS.update(NEWS_TOOLS)            # adds get_news_digest -> {speak, items[...] with url + outlets}
+- **No key:** 16 newsroom RSS feeds (NPR, BBC, NYT, PBS, The Guardian, CBS, ABC, Al Jazeera, Washington Post, ESPN, BBC Sport, Nature, ScienceDaily, Inside Higher Ed, Ars Technica, The Verge), Google News search, ESPN league feeds.
+- **ASU events (ASU's public feeds; ASU offers students no API key):** `asuevents.asu.edu/feed-json` (official calendar) and Sun Devil Central / CampusGroups public event list (student orgs).
+- **Keyed, optional:** Guardian, NYT, GNews, NewsData.io, NewsAPI — set the key in `.env` and it's used automatically. Links in `.env.example`.
+
+## Env vars (`.env.example`)
+
+| Var | Default | Meaning |
+|---|---|---|
+| `NEWS_AGENT_API_KEY` | empty | Shared secret for `X-Jarvis-Key` (set before going public) |
+| `GUARDIAN_API_KEY` / `NYT_API_KEY` / `GNEWS_API_KEY` / `NEWSDATA_API_KEY` / `NEWSAPI_KEY` | empty | Extra news providers |
+| `NEWS_PORT` | `9004` | Port for `python -m app.main` |
+| `NEWS_CACHE_TTL_MINUTES` | `15` | How long fetched news counts as fresh |
+| `PUSH_INTERVAL_SECONDS` / `PUSH_ENABLED` | `600` / `1` | Phone-alert check interval / on-off |
+
+## Code map
+
+```
+app/
+  main.py         HTTP routes, X-Jarvis-Key auth, error mapping only
+  tools.py        tool catalog: definitions + dispatcher (+ NEWS_TOOLS for in-process use)
+  service.py      fetch_news / topics / item / dedupe; comma-topic parsing; non-blocking cache
+  digest.py       fetch all sources in parallel, 24h + trusted filters, cross-outlet clustering
+  outlets.py      newsroom RSS catalog, trusted-outlet list, keyed news APIs
+  sources.py      Google News, ESPN, Hacker News, shared HTTP client
+  events.py       ASU Events + Sun Devil Central
+  extract.py      article text for get_news_item
+  push.py         Web Push phone alerts (VAPID, subscribers, background loop)
+  models.py       all JSON shapes
+  config.py       env settings
+static/           student page (PWA): index.html, app.js, style.css, sw.js, manifest, icons
+tests/unit, tests/api, tests/conftest.py   31 tests, no network
 ```
 
-## Next
+## Public URL (Cloudflare quick tunnel, same as browser-agent)
 
-Pull interests from the student's real profile or supermemory, and courses from Canvas. Host behind the team's HTTPS domain so phone alerts work without a tunnel.
+```bash
+uvicorn app.main:app --port 9004                                   # terminal 1
+cloudflared tunnel --no-autoupdate --url http://localhost:9004      # terminal 2 → https://xxx.trycloudflare.com
+```
+Put it in repo-root `shared.env` as `PUBLIC_NEWS_BASE` (changes every restart). Set `NEWS_AGENT_API_KEY` first. Phones need this HTTPS URL for push alerts.

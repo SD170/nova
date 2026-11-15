@@ -100,6 +100,17 @@ TRUSTED = {
     "propublica", "c-span", "voice of america", "deutsche welle", "dw", "france 24", "the independent",
     "sky news", "cbc", "cbc news", "the conversation", "nasa", "stat", "stat news", "kff health news",
     "mit technology review", "ieee spectrum", "quanta magazine",
+    # official league / team sites and established sports desks
+    "nba.com", "nfl.com", "mlb.com", "nhl.com", "mls", "wnba.com", "ncaa.com", "fifa", "uefa", "olympics.com",
+    "pac-12", "big 12 conference", "thesundevils.com", "sun devil athletics", "the ringer", "sporting news",
+    "bleacher report", "basketballnews.com", "fox sports", "nbc sports", "on3", "247sports", "rivals",
+    # Arizona / public-media newsrooms
+    "cronkite news", "arizona's family", "fox 10 phoenix", "ktar news", "phoenix new times", "kawc",
+    "arizona daily star", "tucson.com", "the arizona capitol times", "axios phoenix", "pbs",
+    # business, policy and wire desks
+    "fortune", "business insider", "marketwatch", "barron's", "kff", "federal news network", "nextgov",
+    "fedscoop", "roll call", "semafor", "the information", "the washington times", "newsweek", "abc13 houston",
+    "upi", "agence france-presse", "afp",
 }
 
 

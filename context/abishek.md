@@ -146,11 +146,13 @@ Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TI
 - **Amrita (quiz):** materials (PDF text) are the next thing I build; until then use `mocks/canvas_snapshot.json` → `materials`.
 - **Shruti (UI):** render `items` directly; every item has `source_url`, `due_at`, `notes`; show "syncing…" while `/sync` runs.
 
-## Asks from orchestrator (Saswata) — unblocks voice demo
+## TODO from Saswata (orchestrator) — unblocks voice demo
 
-System design is locked (`context/saswata.md` → "System design — LOCKED"). Your service stays stateless; brain owns supermemory. Three small endpoints + one pipeline bump unblock the whole voice path. All in your existing cache / Snapshot shape, no architectural change.
+System design is locked (`context/saswata.md` → "System design — LOCKED"). Your service stays stateless; brain owns supermemory. Four endpoint-level todos + one infra todo. All in your existing cache / Snapshot shape, no architectural change.
 
-### Step 1 — `GET /brief?days=7` (highest priority, ~15 min)
+Format: each item is a copy-pasteable instruction. Mark `[x]` when done.
+
+### [ ] TODO 1 — add `GET /brief?days=7` endpoint (highest priority, ~15 min)
 
 Single bundled call for voice "good morning / what's due" and the Daily Pulse cron. Saves 2-3 round trips per common prompt.
 
@@ -173,7 +175,7 @@ async def brief(request: Request, days: int = Query(7, ge=1, le=60)):
 
 Brain calls this as `get_daily_brief`. This becomes the single most-called tool in the system.
 
-### Step 2 — `GET /items/{item_id}` (~5 min)
+### [ ] TODO 2 — add `GET /items/{item_id}` endpoint (~5 min)
 
 For "tell me more about HW3" — full details from cached snapshot.
 
@@ -189,7 +191,7 @@ async def item_detail(request: Request, item_id: str):
 
 Brain calls this as `get_item_details`.
 
-### Step 3 — `POST /items/{item_id}/user-done` (~20 min)
+### [ ] TODO 3 — add `POST /items/{item_id}/user-done` endpoint (~20 min)
 
 Student says "I already did HW3." We flag locally until next sync overwrites. Canvas remains untouched.
 
@@ -224,13 +226,39 @@ async def mark_user_done(self, item_id: str) -> Item:
 
 Brain calls this as `mark_item_done_locally`.
 
-### Step 4 — reinforces your existing Next Steps #1 (materials)
+### [ ] TODO 4 — materials pipeline (reinforces your existing Next Steps #1)
 
 Already your top priority. Minimal first cut unblocks Amrita even without PDF extraction:
 
 - `TinyFishBackend.fetch_materials(course)` reads `/api/v1/courses/{id}/files` + `/api/v1/courses/{id}/modules` (same JSON pattern as planner/items).
 - Return `Material` with `id`, `course_id`, `title`, `type`, `url`.
 - Text extraction (your step 1's `pypdf` pass) can land in a second commit — Amrita can validate her embedding pipeline off URLs first.
+
+### [ ] TODO 5 — expose your service over Cloudflare tunnel
+
+Saswata already did this for `apps/voice/` — follow the exact same pattern so your `:9001` service is reachable from anywhere (orchestrator / phone / judge laptop during demo), not just localhost.
+
+Steps:
+1. `brew install cloudflared` if not already installed (`which cloudflared` to check).
+2. Start the Canvas service on port 9001: `cd apps/browser-agent && uvicorn app.main:app --port 9001`
+3. In a second terminal: `cloudflared tunnel --no-autoupdate --url http://localhost:9001`
+4. Cloudflared prints a public URL like `https://xxx-yyy-zzz.trycloudflare.com` — copy it.
+5. Verify from anywhere: `curl https://xxx-yyy-zzz.trycloudflare.com/health` → should return 200.
+6. Add to `shared.env` at repo root (edit directly, commit):
+   ```
+   # Canvas service — Abishek, apps/browser-agent on port 9001
+   PUBLIC_CANVAS_BASE=https://xxx-yyy-zzz.trycloudflare.com
+   ```
+7. Update if cloudflared restarts and gives a new URL (quick tunnels are ephemeral).
+
+Why this matters:
+- Orchestrator (Saswata, `apps/orchestrator`) can call your service from a different machine / deployed Hermes profile.
+- Judges can hit `/docs` live on your Cloudflare URL during the demo — "here's the real Canvas service" moment.
+- Daily Pulse cron running on Maritime can reach it.
+
+Notes:
+- Quick-tunnel URL changes every cloudflared restart. Pin a named tunnel only if we have time (not blocking).
+- Zero auth on the tunnel for now — service is read-only + no PII beyond the signed-in Canvas account. Fine for 24h hackathon window. **Delete tunnel after the event.**
 
 ### Non-goals — explicitly NOT asked
 
@@ -239,21 +267,21 @@ Already your top priority. Minimal first cut unblocks Amrita even without PDF ex
 - No per-user auth.
 - No Canvas writes.
 
-### Orchestrator's tool catalog pointing at your service (reference)
+### Orchestrator's tool catalog pointing at your service (reference, don't implement this — Saswata does)
 
-| Tool name (brain) | Endpoint (you) | New? |
+| Tool name (brain) | Endpoint (you) | TODO# |
 |---|---|---|
 | `get_todo_list(days)` | `GET /items/next?days=` | existing |
-| `get_daily_brief(days)` | `GET /brief?days=` | **NEW — step 1** |
-| `get_item_details(item_id)` | `GET /items/{item_id}` | **NEW — step 2** |
+| `get_daily_brief(days)` | `GET /brief?days=` | **TODO 1** |
+| `get_item_details(item_id)` | `GET /items/{item_id}` | **TODO 2** |
 | `get_course_items(course_id, include_done)` | `GET /items?course_id=` | existing |
 | `list_courses()` | `GET /courses` | existing |
-| `get_course_materials(course_id, topic_hint?)` | `GET /materials?course_id=` | step 4 fills body |
+| `get_course_materials(course_id, topic_hint?)` | `GET /materials?course_id=` | **TODO 4** fills body |
 | `sync_canvas()` | `POST /sync` | existing |
 | `get_canvas_health()` | `GET /health` | existing |
-| `mark_item_done_locally(item_id)` | `POST /items/{item_id}/user-done` | **NEW — step 3** |
+| `mark_item_done_locally(item_id)` | `POST /items/{item_id}/user-done` | **TODO 3** |
 
-Ping Saswata when steps 1-3 land; that unblocks the orchestrator's first voice end-to-end. Materials (step 4) unblocks Amrita separately.
+Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voice end-to-end. TODO 4 unblocks Amrita separately.
 
 ## Next steps (in order)
 

@@ -6,7 +6,10 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 
 ## Status (Nov 15, morning)
 
-- ✅ **Gmail + Google Calendar done (new service `apps/google-agent`, port 9005):** inbox summary with important / needs-reply flags, new mail, search, read, drafts (never sent), company research, save a `.docx`, calendar read + free time, and Canvas deadlines → a separate **"Nova" calendar**. 13 MCP tools at `/mcp`, same `X-Canvas-Key` + same key value as Canvas. Tested on Abishek's real Gmail + Google Calendar. Details: "Gmail + Google Calendar" below.
+- ✅ **Voice-sized answers (Nov 15):** every Canvas and Gmail/Calendar/news tool now returns a one-line **`speak`** + compact data, so Nova answers in 1–2 short sentences. Course codes are short ("CSE 507"), titles are short ("Module 5 quiz"), times are spoken ("Monday 11:59 PM"), `gmail_get_message` returns only a gist unless `full=true`. REST endpoints are unchanged (full data for the UI). `SOUL.md` has the matching hard length rules (edited by Abishek, see "Voice-sized answers" below).
+- ✅ **News + ASU events (Nov 15):** Amrita's news API (port 9004, runs on Abishek's laptop) is exposed as two more MCP tools in the same `workspace` MCP: `news_headlines`, `asu_events`. Nothing new to connect for Hermes.
+
+- ✅ **Gmail + Google Calendar done (new service `apps/google-agent`, port 9005):** inbox summary with important / needs-reply flags, new mail, search, read, drafts (never sent), company research, save a `.docx`, calendar read + free time, and Canvas deadlines → a separate **"Nova" calendar**. 15 MCP tools at `/mcp` (13 Gmail/Calendar/research/documents + 2 news), same `X-Canvas-Key` + same key value as Canvas. Tested on Abishek's real Gmail + Google Calendar. Details: "Gmail + Google Calendar" below.
 - ⏳ **Saswata must wire it into Hermes** (config + SOUL text, ~10 min): see **"For Saswata — Gmail + Calendar steps"** below.
 
 - ✅ **Working on real ASU Canvas.** One sync ≈ 7 s for Canvas + ≈ 5–25 s for Gemini. Answers are instant from cache.
@@ -179,7 +182,7 @@ Errors come back as MCP tool errors with a readable message (e.g. "too_large …
 | `scripts/export_mock.py` | Regenerates `mocks/canvas_snapshot.json`. |
 | `tests/unit`, `tests/api`, `tests/fixtures` | 87 tests, no network: classifier, Canvas JSON conversion, Gemini, background refresh, overrides, auth, materials (week parsing, file types, cache, slicing), every endpoint, MCP (discovery, calls, errors, auth). |
 
-`apps/google-agent/` (Gmail + Calendar): file map, setup, env vars and API table are in its own `README.md` ("Code map"); 36 tests, no network.
+`apps/google-agent/` (Gmail + Calendar): file map, setup, env vars and API table are in its own `README.md` ("Code map"); 60 tests, no network.
 
 ## Setup (for whoever runs it)
 
@@ -221,14 +224,14 @@ TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to 
 
 ## Gmail + Google Calendar — `apps/google-agent/` (port 9005, Nov 15)
 
-Built the same way as the Canvas service: stateless FastAPI + **MCP at `/mcp`** (streamable-HTTP, 13 tools), **same `X-Canvas-Key` header and the same key value as Canvas (no new secret)**, `WORKSPACE_BACKEND=mock|google` (mock = labeled demo inbox + calendar, no login). Tested on the real Gmail + Google Calendar; 36 tests, no network. Full docs, setup and code map: `apps/google-agent/README.md`.
+Built the same way as the Canvas service: stateless FastAPI + **MCP at `/mcp`** (streamable-HTTP, 15 tools), **same `X-Canvas-Key` header and the same key value as Canvas (no new secret)**, `WORKSPACE_BACKEND=mock|google` (mock = labeled demo inbox + calendar, no login). Tested on the real Gmail + Google Calendar; 60 tests, no network. Full docs, setup and code map: `apps/google-agent/README.md`.
 
 | Tool (MCP) | Student says | Returns (JSON) |
 |---|---|---|
 | `gmail_inbox_summary(hours=72, max_results=20, unread_only, important_only, category)` | "what's in my mail?" | `{account, total, important_count, needs_reply_count, emails:[{id, from_name, from_email, subject, snippet, date, unread, category, important, needs_reply, reason, classified_by, gmail_url}]}`, important first. `category` ∈ school, work, recruiter, money, personal, promo, newsletter, notification, other |
 | `gmail_new_since(mark_seen=true)` | "any new mail?" | `{since, new_count, important_count, emails}` since the last call (first call: last 12 h) |
 | `gmail_search(query, max_results=10)` | "find the email from Anthropic" | same shape as the summary; Gmail syntax (`from:`, `subject:`, `is:unread`, `has:attachment`) |
-| `gmail_get_message(message_id, max_chars=8000)` | "read it to me" | summary fields + `to`, `body_text`, `truncated`, `attachments[]`, `notice` (email text is **untrusted**) |
+| `gmail_get_message(message_id, full=false, max_chars=3000)` | "read it to me" / "summarize that mail" | by default only `{speak (a ≤25-word gist), from, subject, when, category, important, needs_reply, attachments[]}`; `body_text` + `truncated` only with `full=true` (email text is **untrusted**) |
 | `gmail_create_draft(body, to?, subject?, reply_to_message_id?)` | "reply yes" | `{draft_id, to, subject, body, gmail_url, note}`. Saved in Gmail Drafts; **nothing is ever sent** (no send code exists) |
 | `calendar_list_events(days_ahead=7, days_back=0)` | "what's on my calendar?" | `{events:[{id, title, start, end, all_day, calendar: "primary" or "nova", description, html_link, canvas_item_id}]}`; the student's own events are read-only |
 | `calendar_free_busy(days_ahead=3)` | "when am I free?" | `{busy:[{start,end}], free:[{start,end}]}` (gaps ≥ 30 min, 8am–10pm local) |
@@ -236,10 +239,22 @@ Built the same way as the Canvas service: stateless FastAPI + **MCP at `/mcp`** 
 | `calendar_sync_canvas(apply=false)` | "put my deadlines on my calendar" | `{applied, counts:{create,update,delete,keep}, changes:[{action, canvas_item_id, title, start, end, reason}], note}`. `apply=false` = **preview only** (**write** when `apply=true`: needs a yes first) |
 | `calendar_auto_sync(enabled?)` | "keep it updated" | `{enabled, every_minutes, last_run, last_result, last_error}`; `enabled=true` runs one sync now, then every 20 min (needs a yes first) |
 | `research_company(company, domain?, role?)` | "tell me about that company" | `{summary, what_they_do, recent_news[], role_notes, sources:[{title,url}], summarized_by}` (~20 s; TinyFish search + page reads, Gemini summary using only fetched text) |
+| `news_headlines(topics="top", count=3, live=false)` | "what's in the news?" | `{speak, count, stories:[{id, title, source, topic, outlets, confirmed, published, url}]}` — proxies Amrita's service; topics = sections (top, world, politics, tech, science, sports, business, health, education) or any custom topic |
+| `asu_events(days=7, query?, limit=5)` | "what's on at ASU?" | `{speak, total, events:[{id, title, when ("happening now" / "Tuesday 10 AM"), location, host, cost, url}]}` |
 | `save_document(title, content_markdown, format="docx")` | "write a cover letter" | `{id, title, filename, format, size_bytes, download_url}` — the brain writes the text, this saves it as a file |
 | `get_workspace_health()` | — | `{ok, backend, account, google_login: ok / not_set_up / expired / demo, auto_sync, last_error}` |
 
 REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/messages/{id}`, `POST /gmail/drafts`, `/calendar/events`, `/calendar/free-busy`, `POST /calendar/events`, `POST /calendar/sync-canvas?apply=`, `/calendar/auto-sync`, `POST /research/company`, `POST /documents`, `GET /files/{id}`): table in the README.
+
+**Voice-sized answers (Nov 15) — applies to the Canvas MCP too.** Nova speaks everything, so tool results are small and come with a ready-made line:
+- Every tool result has **`speak`**: one or two short sentences (≤ ~35 words). The brain says it as is; the other fields are only for follow-ups ("what else?", "the one from Amex").
+- Compact data: Canvas items → `{id, course: "CSE 507", title: "Module 5 quiz", due: "Monday 11:59 PM", points, type, source_url}` (max 8 + `count`); emails → `{id, from, subject, snippet(100), category, important, needs_reply, unread, when}` (max 8 + counts over everything fetched). The inbox answer went from ~14k to ~3.4k characters.
+- Short names: `BMI/BME/CEN/CSE507-494` → `CSE 507`; `Graded Quiz: Module 5 - Requires Respondus LockDown Browser + Webcam` → `Module 5 quiz`; `Assignment 3: More Challenging…` → `Assignment 3`. Calendar event titles use the short course code too.
+- `gmail_get_message` returns a one-line **gist** (Gemini, cached per message; first sentences as fallback) instead of the body. `research_company` returns `speak` + a `more` block for follow-ups.
+- **REST endpoints are unchanged** (full data for the UI / side panel). Only MCP is shortened. Code: `apps/browser-agent/app/voice.py`, `apps/google-agent/app/voice.py` (+ `gist.py`, `news.py`); tests assert the length of every `speak`.
+- Calendar sync fix: an event is updated only when its **title or time** changes (the description holds Gemini-written steps that change every Canvas sync, which used to rewrite every event).
+
+**News + ASU events (Nov 15).** Amrita's service (`drafts/amrita-current-events`, port 9004) runs on Abishek's laptop; the workspace service calls it (`NEWS_SERVICE_URL`, default `http://localhost:9004`) and shortens the answer, so Hermes reaches it through the same `workspace` MCP. Her own `speak` is 3 sentences, so we compose a 1-sentence one. If her service is down the tool errors with "Could not reach the news service". REST for the UI: `GET /news/headlines?topics=&count=&live=`, `GET /news/asu-events?days=&query=&limit=`.
 
 **How Canvas → calendar works (decided + built)**
 - The service reads the to-do list from the Canvas service (`GET localhost:9001/items/next?include_done=true&days=45`, same key). Nothing is re-scraped.
@@ -260,6 +275,13 @@ REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/m
 - Exams appear on the calendar only if Canvas lists them (exam extraction from syllabus/announcements is TODO B).
 
 ## For Saswata — Gmail + Calendar steps (Nov 15, do these in order)
+
+> **UPDATE Nov 15 (voice-sized answers + news) — what to do now:** `git pull`, then restart the bridge. That's it.
+> - `SOUL.md` was edited by Abishek (with the user's OK): new **ANSWER LENGTH — HARD LIMIT** section (max 2 sentences, say the tool's `speak`, short course codes, mail = one line, never read a body), updated Canvas/Gmail bullets, and two new news lines (`news_headlines`, `asu_events`). Nothing to paste.
+> - **No config change:** the two news tools are in the same `workspace` MCP. After the restart Hermes sees **15** tools there (curl check below → 15).
+> - The Canvas MCP (`canvas`) is also shorter now (same tool names, new compact fields + `speak`).
+> - If an answer is still too long, tell Abishek which question you asked; the fix is usually one rule in `SOUL.md` or one field in a tool.
+
 
 Done on Abishek's side and pushed. Nothing new to ask Abishek for except the tunnel being up. Your side:
 
@@ -299,7 +321,7 @@ Done on Abishek's side and pushed. Nothing new to ask Abishek for except the tun
    - Their own calendar events are read-only. Writes only ever go to the "Nova" calendar.
    ```
 6. **Restart the bridge** (`python3 bridge.py` in `apps/brain/`) so Hermes reloads its MCP servers.
-7. **Check without voice** — expect 13 tools; wrong key → `401`:
+7. **Check without voice** — expect 15 tools (13 before the news update); wrong key → `401`:
    ```bash
    curl -s -X POST "$PUBLIC_WORKSPACE_BASE/mcp" -H "X-Canvas-Key: $CANVAS_API_KEY" \
      -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
@@ -320,8 +342,9 @@ Done on Abishek's side and pushed. Nothing new to ask Abishek for except the tun
 
 ## Abishek — before the demo (his own checklist)
 
-1. Start both services from their real `data/` folders, plus **two** tunnels:
+1. Start the three services from their real `data/` folders, plus **two** tunnels (the news service needs no tunnel: the workspace service calls it on localhost):
    ```bash
+   cd drafts/amrita-current-events && .venv/bin/uvicorn app.main:app --port 9004   # first time: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
    cd apps/browser-agent && BROWSER_BACKEND=tinyfish .venv/bin/uvicorn app.main:app --port 9001
    cd apps/google-agent  && WORKSPACE_BACKEND=google .venv/bin/uvicorn app.main:app --port 9005
    cloudflared tunnel --url http://localhost:9001      # -> PUBLIC_CANVAS_BASE
@@ -621,6 +644,13 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 - Remaining on Saswata's side: the Hermes steps above. Remaining on mine: signed download links for `save_document` (open question), re-login every 7 days.
 - Later, if time: exam dates from TODO B land on the Nova calendar automatically (they already flow through `calendar_sync_canvas` once Canvas lists them as exam items).
 
+### [x] F. Voice-sized answers — DONE (Nov 15): `speak` + compact data in both MCP faces, `SOUL.md` length rules.
+### [x] G. News + ASU events through the workspace MCP — DONE (Nov 15).
+### Parked by Abishek (do last, after everything else is tested)
+- **Exam prep** (was B): brainstorm a cheap voice flow first; the real value is generating study PDFs (heavy on tokens), so it comes last.
+- **Side panel in the UI**: layout discussion first, then a compact data feed + build with Shruti.
+- **LinkedIn co-pilot**: Abishek tests it himself in a separate chat; it is parked on the local branch `abishek/linkedin-copilot` (not pushed) and will be merged only on his word.
+
 ### [ ] B. Exam prep
 - Syllabus text (+ syllabus PDFs) is now available via materials — use it as a source alongside announcements.
 - Pull announcements (`/api/v1/announcements?context_codes[]=course_:id`) + syllabus body for current courses.
@@ -642,7 +672,7 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 - [x] Saswata's TODOs 1, 2, 3, 5: `/brief`, `/items/{id}`, user-done + undo, public tunnel + `X-Canvas-Key`.
 - [x] Background refresh (reads never block). Optional later: live sync progress for the UI.
 - [x] Course materials (TODO 4) + MCP server at `/mcp` (Saswata's TODO 6).
-- [x] Gmail + Google Calendar service (`apps/google-agent`, port 9005, 13 MCP tools, real account tested): classified inbox, drafts, company research, documents, Canvas → "Nova" calendar.
+- [x] Gmail + Google Calendar service (`apps/google-agent`, port 9005, now 15 MCP tools incl. news, real account tested): classified inbox, drafts, company research, documents, Canvas → "Nova" calendar.
 - [x] Renamed `X-Jarvis-Key` → `X-Canvas-Key` / `BROWSER_AGENT_API_KEY` → `CANVAS_API_KEY` after Saswata's rename (and fixed two spots the rename missed: the setting name and the MCP header check).
 
 ## Open questions

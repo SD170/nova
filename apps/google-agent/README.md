@@ -13,11 +13,18 @@ What Nova can do with it, in plain English:
 | "Find the email from Anthropic" / "read it to me" | `gmail_search`, `gmail_get_message` |
 | "Draft a reply saying Thursday works" | `gmail_create_draft` (saved in Gmail Drafts, **never sent**) |
 | "Tell me about the company that emailed me" | `research_company` (TinyFish web search + Gemini, with sources) |
+| "What's in the news?" / "what's on at ASU?" | `news_headlines`, `asu_events` (Amrita's news service, proxied) |
 | "Write me a cover letter for that role" | brain writes it → `save_document` (.docx download link) |
 | "What's on my calendar this week?" / "when am I free?" | `calendar_list_events`, `calendar_free_busy` |
 | "Put my deadlines on my calendar" | `calendar_sync_canvas` (preview, then apply after a yes) |
 | "Keep my calendar updated automatically" | `calendar_auto_sync(enabled=true)` |
 | "Block 2 hours Thursday to study heaps" | `calendar_create_event` (Nova calendar only) |
+
+## Voice-sized answers
+
+Every MCP tool returns a short **`speak`** sentence plus compact data (max 8 emails / 10 events), because Nova speaks
+the answer. `gmail_get_message` gives a one-line gist unless `full=true`. REST endpoints keep the full data for the UI.
+Code: `app/voice.py`, `app/gist.py`; tests assert the length of every `speak`.
 
 ## Safety (by construction)
 
@@ -129,7 +136,9 @@ Auth: if `CANVAS_API_KEY` is set, send `X-Canvas-Key` on everything except `/hea
 | `POST /research/company` `{company, domain?, role?}` | web research brief with sources |
 | `POST /documents` `{title, content_markdown, format}` | save .docx/.md, returns `download_url` |
 | `GET /files/{id}` | download a saved document |
-| `POST /mcp` | MCP streamable-HTTP, 13 tools |
+| `GET /news/headlines?topics=&count=&live=` | compact stories from Amrita's service (port 9004) |
+| `GET /news/asu-events?days=&query=&limit=` | compact ASU events |
+| `POST /mcp` | MCP streamable-HTTP, 15 tools |
 
 Errors: `401` bad key · `404 message_not_found` / `document_not_found` · `422 bad_request` ·
 `502 canvas_unavailable` (Canvas service down) · `503 google_login_expired` / `research_unavailable`.
@@ -138,19 +147,22 @@ Errors: `401` bad key · `404 message_not_found` / `document_not_found` · `422 
 
 `CANVAS_API_KEY`, `WORKSPACE_BACKEND` (mock|google), `CANVAS_SERVICE_URL`, `PUBLIC_WORKSPACE_BASE`, `TIMEZONE`,
 `NOVA_CALENDAR_NAME`, `AUTO_SYNC_MINUTES`, `GEMINI_API_KEY` / `GEMINI_MODEL` / `GEMINI_FALLBACK_MODELS`,
-`TINYFISH_API_KEY`.
+`TINYFISH_API_KEY`, `NEWS_SERVICE_URL` (default `http://localhost:9004`, Amrita's news service), `NEWS_API_KEY` (only if hers has a key).
 
 ## Code map
 
 ```
 app/
   main.py            REST routes, error mapping, mounts /mcp with the key guard
-  mcp_server.py      13 MCP tools + KeyGuard
+  mcp_server.py      15 MCP tools + KeyGuard
   service.py         all logic (inbox, new mail, drafts, calendar, Canvas sync, auto sync, research, docs)
   classify.py        email category / important / needs-reply: rules + Gemini (cached per message id)
   canvas_sync.py     Canvas item -> calendar event rules, diff (create/update/delete/keep), Canvas client
   freebusy.py        free gaps between busy blocks
   research.py        TinyFish search + fetch -> Gemini brief with sources
+  news.py            client for Amrita's news service (port 9004) + voice-sized stories/events
+  voice.py           short names, spoken times, one-line `speak` for every tool
+  gist.py            one-line email gist (Gemini, cached; first sentences as fallback)
   documents.py       markdown -> .docx, file store
   google_auth.py     token refresh
   backends/          base contract; mock.py (demo); google.py (Gmail + Calendar REST)

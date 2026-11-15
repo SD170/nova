@@ -64,7 +64,7 @@ Auth: if `CANVAS_API_KEY` is set, send header `X-Canvas-Key` on every endpoint e
 | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` |
 | `GET /materials?course_id=&topic_hint=&this_week=` | study materials list (syllabus, PDFs, Canvas pages, links) with module + week dates + `text_status`; no text |
 | `GET /materials/{id}/text?offset=&max_chars=` | plain text of one material (`[page N]` markers), cached after first call; long docs in slices via `next_offset` |
-| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Canvas-Key` |
+| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Canvas-Key` **MCP answers are voice-sized:** each tool returns a one-line `speak` plus compact data (short course codes, short titles, spoken due times; see `app/voice.py`). REST endpoints keep the full data. |
 
 Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
 

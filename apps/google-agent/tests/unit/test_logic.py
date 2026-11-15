@@ -106,6 +106,21 @@ def test_plan_update_when_due_date_moves_and_delete_when_submitted():
     assert result["event-9"][0] == "keep"
 
 
+def test_plan_ignores_description_only_changes():
+    """Gemini re-writes the steps on every Canvas sync; that must not rewrite the calendar."""
+    desired = desired_events(canvas_items(NOW), NOW)
+    existing = existing_from(desired)
+    desired["assignment-1"] = desired["assignment-1"].model_copy(
+        update={"description": "completely different Gemini steps"})
+    assert {c.action for c, _ in plan(desired, existing, NOW)} == {"keep"}
+
+
+def test_event_title_uses_the_short_course_code():
+    item = {"id": "a", "course_code": "BMI/BME/CEN/CSE507-494", "type": "assignment",
+            "title": "Demo 3", "due_at": (NOW + timedelta(days=2)).isoformat(), "in_todo": True}
+    assert to_spec(item).title == "[CSE 507] Demo 3 (due)"
+
+
 def test_plan_leaves_past_events_alone():
     past = CalendarEvent(id="old", title="old", start=NOW - timedelta(days=3),
                          end=NOW - timedelta(days=3) + timedelta(minutes=30),

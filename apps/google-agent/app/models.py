@@ -203,6 +203,7 @@ class Source(BaseModel):
 
 class CompanyResearch(BaseModel):
     company: str
+    speak: str = ""   # <= 40 words, safe to say aloud as is
     summary: str
     what_they_do: str = ""
     recent_news: list[str] = Field(default_factory=list)
@@ -235,6 +236,10 @@ class MessageNotFound(Exception):
 
 class CanvasUnavailable(Exception):
     """The Canvas service (apps/browser-agent) could not be reached or rejected our key."""
+
+
+class NewsUnavailable(Exception):
+    """Amrita's news service (port 9004) is down or rejected our key."""
 
 
 class ResearchUnavailable(Exception):

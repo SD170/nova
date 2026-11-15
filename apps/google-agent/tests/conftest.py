@@ -6,6 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.canvas_sync import CanvasClient
+from app.models import NewsUnavailable
+from app.news import NewsClient
 from app.config import Settings
 from app.main import create_app
 
@@ -76,4 +78,39 @@ def fake_canvas(monkeypatch):
         return state["items"], {"data_source": "demo", "synced_at": "2026-11-15T08:00:00Z"}
 
     monkeypatch.setattr(CanvasClient, "items", items)
+    return state
+
+
+NEWS = {"generated_at": "2026-11-15T10:40:14Z", "data_source": "live", "items": [
+    {"id": "n1", "title": "Judge temporarily blocks Trump from moving ahead on Washington public "
+                          "golf course redevelopment", "url": "https://npr.org/a", "source": "NPR",
+     "topic": "Top stories", "outlets": 2, "confirmed": True,
+     "published_at": "2026-11-15T04:28:45Z"},
+    {"id": "n2", "title": "Fed holds rates", "url": "https://bbc.com/b", "source": "BBC",
+     "topic": "Top stories", "outlets": 1, "confirmed": False,
+     "published_at": "2026-11-15T06:00:00Z"},
+    {"id": "n3", "title": "Suns win in overtime", "url": "https://espn.com/c", "source": "ESPN",
+     "topic": "Top stories", "outlets": 1, "confirmed": False,
+     "published_at": "2026-11-15T07:00:00Z"}]}
+EVENTS = {"data_source": "live", "items": [
+    {"id": "e1", "title": "Career Fair", "starts_at": "2026-11-17T17:00:00Z",
+     "when_text": "Tue, Nov 17, 10:00 AM", "location": "Memorial Union, Tempe", "host": "ASU Career",
+     "cost": "FREE", "url": "https://asu/e1"},
+    {"id": "e2", "title": "Robotics club meeting", "starts_at": "2026-11-18T01:00:00Z",
+     "when_text": "Tue 6 PM", "location": "BYENG 210", "host": "Robotics", "cost": "FREE",
+     "url": "https://asu/e2"}]}
+
+
+@pytest.fixture
+def fake_news(monkeypatch):
+    """Amrita's news service stand-in. state['error'] makes it fail like a down service."""
+    state = {"error": None, "calls": []}
+
+    async def _get(self, path, params):
+        state["calls"].append((path, params))
+        if state["error"]:
+            raise state["error"]
+        return NEWS if path == "/news" else EVENTS
+
+    monkeypatch.setattr(NewsClient, "_get", _get)
     return state

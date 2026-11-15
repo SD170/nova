@@ -3,7 +3,7 @@
 The Canvas service (apps/browser-agent, localhost:9001) already knows what is on the
 student's to-do list. We read /items/next from it and make the Nova calendar match:
   - create an event for each to-do item / exam with a due time in the future,
-  - update it if the due date, title or details changed,
+  - update it if the due date or title changed (not the description: Gemini rewrites it every sync),
   - remove it when the item was submitted, marked done, or disappeared from Canvas.
 Events are keyed by the Canvas item id, so running it twice never duplicates anything.
 """
@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 
 from .models import CalendarEvent, CanvasUnavailable, EventSpec, SyncChange
+from .voice import short_course
 
 WORK_MINUTES = 30      # assignments/quizzes: a 30-minute marker ending... starting at the due time
 EXAM_MINUTES = 90
@@ -42,7 +43,7 @@ def wanted(item: dict, now: datetime) -> bool:
 
 def to_spec(item: dict) -> EventSpec:
     due = _parse(item["due_at"])
-    code = item.get("course_code") or ""
+    code = short_course(item.get("course_code"))
     title = item.get("title") or "Canvas item"
     is_exam = item.get("type") == "exam"
     prefix = f"[{code}] " if code else ""
@@ -78,8 +79,8 @@ def _differences(spec: EventSpec, ev: CalendarEvent) -> list[str]:
         diff.append("title")
     if spec.start != ev.start or spec.end != ev.end:
         diff.append("time")
-    if spec.description.strip() != ev.description.strip():
-        diff.append("details")
+    # The description is NOT compared: it holds Gemini-written steps that change on every
+    # Canvas sync, which would rewrite every event each time. It is set once, on create.
     return diff
 
 

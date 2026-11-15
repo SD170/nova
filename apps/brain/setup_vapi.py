@@ -111,15 +111,26 @@ def nova_config(shruti_id: str) -> dict:
                                     "Hand off to Shruti when the user asks for a student perspective "
                                     "or says 'talk to me as Shruti'."),
         },
-        "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en-US"},
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 600,
-        # Aggressive barge-in: Vapi stops speaking as soon as user says even 1 word.
+        # Barge-in: cut off Nova the instant the user says even 1 word.
+        # Endpointing: wait longer before firing Hermes if user clearly isn't
+        # done talking (no sentence-end punctuation = still thinking).
+        "transcriber": {
+            "provider": "deepgram", "model": "nova-2", "language": "en-US",
+            "endpointing": 400,
+            "smartFormat": True,
+        },
         "startSpeakingPlan": {
-            "waitSeconds": 0.3,
+            "waitSeconds": 0.6,
             "smartEndpointingPlan": {"provider": "livekit",
-                                     "waitFunction": "20 + 500 * sqrt(x) + 2500 * x^3"},
+                                     "waitFunction": "200 + 8000 * x"},
+            "transcriptionEndpointingPlan": {
+                "onPunctuationSeconds": 0.2,
+                "onNoPunctuationSeconds": 1.0,
+                "onNumberSeconds": 0.5,
+            },
         },
         "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
         "backgroundDenoisingEnabled": True,
@@ -153,15 +164,26 @@ def shruti_config(nova_id: str) -> dict:
             "tools": _transfer_tool(nova_id, "Nova", "Handing you back to Nova.",
                                     "Hand off to Nova when the user wants formal mode or says 'back to Nova'."),
         },
-        "transcriber": {"provider": "deepgram", "model": "nova-2", "language": "en-US"},
         "endCallFunctionEnabled": False,
         "silenceTimeoutSeconds": 20,
         "maxDurationSeconds": 600,
-        # Aggressive barge-in: Vapi stops speaking as soon as user says even 1 word.
+        # Barge-in: cut off Nova the instant the user says even 1 word.
+        # Endpointing: wait longer before firing Hermes if user clearly isn't
+        # done talking (no sentence-end punctuation = still thinking).
+        "transcriber": {
+            "provider": "deepgram", "model": "nova-2", "language": "en-US",
+            "endpointing": 400,
+            "smartFormat": True,
+        },
         "startSpeakingPlan": {
-            "waitSeconds": 0.3,
+            "waitSeconds": 0.6,
             "smartEndpointingPlan": {"provider": "livekit",
-                                     "waitFunction": "20 + 500 * sqrt(x) + 2500 * x^3"},
+                                     "waitFunction": "200 + 8000 * x"},
+            "transcriptionEndpointingPlan": {
+                "onPunctuationSeconds": 0.2,
+                "onNoPunctuationSeconds": 1.0,
+                "onNumberSeconds": 0.5,
+            },
         },
         "stopSpeakingPlan": {"numWords": 1, "voiceSeconds": 0.15, "backoffSeconds": 0.8},
         "backgroundDenoisingEnabled": True,

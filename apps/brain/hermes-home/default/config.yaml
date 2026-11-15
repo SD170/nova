@@ -43,6 +43,13 @@ mcp_servers:
     headers:
       X-Canvas-Key: ${CANVAS_API_KEY}
     timeout: 30
+  # Gmail + Google Calendar (Abishek's apps/google-agent, port 9005).
+  # 13 MCP tools. Same shared key as Canvas.
+  workspace:
+    url: ${PUBLIC_WORKSPACE_BASE}/mcp
+    headers:
+      X-Canvas-Key: ${CANVAS_API_KEY}
+    timeout: 45          # research_company takes ~20s
 provider_routing:
   sort: price
   data_collection: deny

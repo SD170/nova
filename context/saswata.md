@@ -252,9 +252,113 @@ Shared JSON contracts (tool call shapes, /chat shape, card types) live in `conte
 
 ## My ideas / open questions
 
-- 
+### Daily Pulse — the "what I need to know when I wake up" brief
 
-## Decisions I'm making
+Student wakes up → single brief. Not a feed, not a dashboard. **One curated page** that answers: "what's on fire today, what should I actually work on, and what's about to hit my bank account."
+
+#### Four lanes feeding one brief
+
+```
+                       ┌─────────────────────┐
+  Canvas (browser) ───▶│                     │
+  Gmail (read-only) ──▶│                     │
+  Calendar ───────────▶│   Daily Pulse       │──▶  one page
+  Interest feeds ─────▶│   synthesizer       │     (voice + web card)
+  Bank (Plaid, P2) ───▶│                     │
+                       └─────────────────────┘
+                                 ▲
+                                 │
+                       supermemory — knows what
+                       you cared about yesterday,
+                       what's stale, what changed
+```
+
+#### Lane 1: academic (what I should work on today)
+- Canvas: upcoming assignments, due dates, points weight, past grade on similar
+- Supermemory signal: weak topics from past quizzes
+- Priority algorithm: `urgency × weight × weakness_delta`
+- Output: "work on HW3 Q4-6 (phase shifts, you missed these on HW3 Q2)"
+
+#### Lane 2: interests (what I care about outside school)
+- No Twitter API — fine. Alternatives:
+  - **RSS feeds from the sites behind the tweets**: Nitter instances (unreliable), or go direct (TechCrunch, Hacker News, The Athletic for football, MAL/AniList for anime)
+  - **Google News RSS** per topic (legit, no auth): `https://news.google.com/rss/search?q=<topic>`
+  - **Reddit** per subreddit (free public JSON): `reddit.com/r/MachineLearning/.json`, `/r/soccer/.json`, `/r/anime/.json`
+  - **Hacker News API** for AI/tech (free, official)
+  - **YouTube RSS** per channel
+  - **LessWrong / arxiv-sanity** for AI
+- Supermemory learns which items I clicked / skipped → tunes next day's filter
+- Output: 3-5 items max, in my voice ("The paper you were reading last week got cited in X.")
+
+#### Lane 3: money (the one that keeps me up)
+- **Cleo has no public API** — checked. Their "API" profiles online are third-party docs of UK Open Banking rails (PSD2). Not for US students, not for personal apps.
+- **Plaid** is what Cleo + every other US fintech uses underneath. Free dev tier, 100+ banks, read-only transaction sync. Good for the "post-hackathon" slide.
+- **For the demo (and honestly the real pain):** use **Gmail read-only** as the money signal. Bank + ASU already send you everything:
+  - ASU financial aid disbursement emails
+  - Tuition / rent due reminders
+  - Bank "you spent X" alerts (Chase, Discover, etc.)
+  - CPT paycheck confirmations (Vapi Inc for you)
+  - Visa / insurance renewal reminders
+- Agent scans the inbox daily via Gmail API (OAuth read-only scope), extracts money events, flags "rent due in 5 days, balance low based on last Chase alert."
+- Output: "Heads up: tuition payment plan second installment hits Dec 3rd ($2,850). You have 2 Vapi paychecks before then — you're fine."
+
+#### Lane 4: logistics (the glue)
+- Calendar: today's blocks, free slots
+- Reminders: anything on your Apple Reminders / Google Tasks list
+- Weather / commute (nice-to-have)
+
+#### Why this is right for us
+
+**Hits sponsor stack 5+ ways:**
+- supermemory — the *whole point* is persistent context across days, filtering by what you care about
+- TinyFish — Canvas scrape + any site that resists RSS
+- Gemini — long-context synthesis of a day's worth of signals into one voice reply
+- MongoDB Atlas — vector memory over your interest profile
+- Maritime — the agent runs *overnight* on their VM, prepares the brief before you wake up
+- JFF — future-of-work is literally "AI prepares your morning so you start sharp"
+
+**Judging criteria it wins on:**
+- Originality: student-specific, money + academics + interests fused. None of the agent-hackathon winners did this.
+- Complexity: four heterogeneous data sources + synthesis + voice + memory layer
+- Functionality: demoable with a single "good morning" voice prompt
+- Design: one beautiful page = visual judge candy
+
+#### Pitfall discipline (what we're NOT building)
+
+- Not a news aggregator. No infinite scroll. 5 items max per category, curated.
+- Not a budget app. No charts, no categorization UI. Just inbox-mining + "heads up about X."
+- Not a to-do list. We surface Canvas + email tasks; we don't ask the student to add items.
+- Not realtime. Briefs are generated once overnight (supermemory + Maritime), updated on demand when they ask.
+
+#### Data sources ranked by hackathon-feasibility
+
+| Source | Access | Cost | Fit |
+|---|---|---|---|
+| Canvas (browser scrape) | ✅ Abishek is on this | $0 | P0 |
+| Gmail (OAuth read-only) | Google APIs, 5-min setup | $0 | P0 for money + ASU emails |
+| Reddit JSON | Public, no auth | $0 | P1 |
+| Google News RSS | Public, no auth | $0 | P1 |
+| Hacker News API | Public, official | $0 | P1 |
+| YouTube RSS per channel | Public, no auth | $0 | P1 |
+| Google Calendar | OAuth, same Google flow as Gmail | $0 | P1 |
+| arXiv / HN cross-ref | APIs free | $0 | P2 |
+| Plaid (real bank) | Free dev tier, 2-day setup | $0 | **P2 — for post-hackathon pitch only** |
+| Apple Reminders | osascript bridge local | $0 | P2 |
+
+#### The demo moment
+
+Judge hits a button. Voice:
+> *"Good morning. You've got CSE 310 at 1:30, and HW3 is due tonight — you nailed convolution in HW4 so I lined up the 4 problems on phase shifts, that's where you dropped points last time. Nothing urgent in Gmail, but ASU's second tuition installment hits Dec 3rd, $2,850 — you have two Vapi paychecks before then, you're clear. In your world: that DeepSeek paper you starred Tuesday has a follow-up on the front page of HN right now, and Arsenal pulled off a 3-2 from behind against City last night. Want me to pin the HN thread?"*
+
+That's the demo. One prompt, one reply, every lane shows up, memory visible everywhere.
+
+### Open questions
+
+- Who owns Gmail integration? Not Abishek (he's on Canvas-via-browser). Maybe Amrita if her LinkedIn stuff lands early.
+- Push Plaid to post-hackathon or build a 10-min mock bank-balance tile for the demo?
+- How does "one page" render — in Shruti's web UI as a card, or do we spin a dedicated `/morning` route?
+
+### Decisions I'm making
 
 - 
 

@@ -115,6 +115,67 @@ _sessions_by_call: dict[str, str] = {}
 
 PERSONA_RE = re.compile(r"\b(nova|shruti)\b", re.I)
 
+# ────────── filler-phrase classifier ──────────
+#
+# "Nova is thinking…" is dead air for the user. Instead, as soon as we receive
+# a request we emit a SHORT, context-aware acknowledgement *before* Hermes
+# spawns. Vapi speaks it while Hermes churns. Pseudo-"thinking out loud".
+#
+# The classifier picks a filler based on keywords in the user prompt that
+# suggest which tool Nova will probably call. Fallback is a generic
+# acknowledgement ("mm, one sec") so the user never hears silence.
+#
+# Skip fillers entirely for trivially short turns ("hi", "yes", "thanks")
+# where speaking a filler before the real one-word reply would be awkward.
+
+_FILLER_RULES: list[tuple[re.Pattern, list[str]]] = [
+    (re.compile(r"\b(canvas|assignment|homework|hw\d|exam|quiz|due|grade|class|course|syllabus|lecture|midterm|material|slide|reading|professor)\b", re.I),
+     ["let me check Canvas.",
+      "pulling up Canvas now.",
+      "one sec, checking your classes.",
+      "looking at your coursework."]),
+    (re.compile(r"\b(schedule|calendar|meeting|appointment|block|free|busy|when)\b", re.I),
+     ["pulling up your schedule.",
+      "checking your calendar.",
+      "let me look at your day."]),
+    (re.compile(r"\b(email|inbox|message|unread|reply|draft)\b", re.I),
+     ["looking at your inbox.",
+      "one sec, checking email."]),
+    (re.compile(r"\b(news|updates?|headlines?|happening)\b", re.I),
+     ["checking the news.",
+      "one sec, pulling updates."]),
+    (re.compile(r"\b(remember|memory|note|track|log)\b", re.I),
+     ["noted, one sec."]),
+]
+_FILLER_GENERIC = ["mm, one sec.", "got it.", "okay, give me a second."]
+_FILLER_SKIP = re.compile(
+    r"^\s*(hi|hey|hello|yo|sup|thanks?|thank\s+you|ok|okay|yep|yeah|no|nope|bye|cool)\b[\s!.?]*$",
+    re.I,
+)
+
+_filler_turn_counter = 0
+
+
+def _pick_filler(user_text: str) -> str | None:
+    """Return a short spoken ack for this turn, or None if we should stay silent.
+
+    Rotates within each category to avoid "let me check Canvas" every time.
+    """
+    global _filler_turn_counter
+    _filler_turn_counter += 1
+    if _FILLER_SKIP.match(user_text or ""):
+        return None
+    if len(user_text) < 6:
+        return None
+    for pat, phrases in _FILLER_RULES:
+        if pat.search(user_text):
+            return phrases[_filler_turn_counter % len(phrases)]
+    # Only emit generic filler if the prompt is long enough that a 3s wait
+    # would be noticeable (short prompts → short replies → no gap to fill).
+    if len(user_text) >= 18:
+        return _FILLER_GENERIC[_filler_turn_counter % len(_FILLER_GENERIC)]
+    return None
+
 # TTS-unfriendly markdown. We strip before handing text to Vapi so Elliot/Savannah
 # don't say "double asterisk" or "pound pound" out loud.
 _MD_HEADER   = re.compile(r"^\s{0,3}#{1,6}\s*", re.M)
@@ -320,12 +381,19 @@ async def _stream_hermes_to_sse(
     resume_session: str | None,
     model: str,
     on_session_id,
+    filler: str | None = None,
 ) -> AsyncIterator[bytes]:
     """Pipe Hermes output straight to Vapi as OpenAI SSE chunks.
 
     Each line Hermes emits becomes one `delta.content` chunk, so Vapi starts
     TTS on the first spoken sentence instead of waiting for the whole reply.
+
+    If `filler` is set, emit it as the very first SSE chunk BEFORE spawning
+    Hermes. Vapi starts TTS on the filler while Hermes is still warming up,
+    so the user hears continuous speech instead of a dead-air gap.
     """
+    if filler:
+        yield _openai_chunk(filler + " ", model).encode()
     async for kind, payload in _run_hermes_stream(prompt, resume_session):
         if kind == "chunk":
             yield _openai_chunk(payload + "\n", model).encode()
@@ -390,8 +458,12 @@ async def _chat(request: Request):
             if sid and call_id:
                 _sessions_by_call[call_id] = sid
 
+        filler = _pick_filler(user_text)
+        if filler:
+            log.info("[t-turn %s] filler=%r (speaks while hermes spawns)", turn_id, filler)
+
         resp = StreamingResponse(
-            _stream_hermes_to_sse(prompted, session, model, _remember),
+            _stream_hermes_to_sse(prompted, session, model, _remember, filler=filler),
             media_type="text/event-stream",
             headers={"cache-control": "no-cache"},
         )

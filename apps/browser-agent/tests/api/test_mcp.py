@@ -6,7 +6,9 @@ H = {"Accept": "application/json, text/event-stream", "Content-Type": "applicati
 
 TOOLS = {"get_daily_brief", "get_todo_list", "get_item_details", "mark_item_done_locally",
          "unmark_item_done", "list_courses", "get_course_items", "get_course_materials",
-         "get_material_text", "sync_canvas", "get_canvas_health"}
+         "get_material_text", "sync_canvas", "get_canvas_health",
+         "linkedin_session_summary", "linkedin_recent_posts", "linkedin_draft_message",
+         "linkedin_research_company", "linkedin_get_research"}
 
 
 def rpc(c, method, params=None, headers=None, rid=1):

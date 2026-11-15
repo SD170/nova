@@ -19,6 +19,7 @@ from typing import Any, Callable
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from .linkedin import LinkedInService
 from .service import BrowserAgentService
 from .voice import (
     compact_item,
@@ -45,12 +46,16 @@ def _materials_payload(materials) -> list[dict[str, Any]]:
     return out
 
 
-def build_mcp(get_svc: Callable[[], BrowserAgentService]) -> FastMCP:
+def build_mcp(get_svc: Callable[[], BrowserAgentService],
+              get_li: Callable[[], LinkedInService] | None = None) -> FastMCP:
     mcp = FastMCP(
         "canvas",
         instructions=("Student's real ASU Canvas (read-only): to-do list, items, courses, "
                       "course materials text for exam prep and quizzes. Reads are instant "
-                      "from cache; only sync_canvas is slow."),
+                      "from cache; only sync_canvas is slow. Also linkedin_* tools: what the "
+                      "student engaged with while scrolling LinkedIn (via the Jarvis Chrome "
+                      "extension), people worth contacting, and drafted comments/DMs. "
+                      "Drafts only: nothing is ever posted or sent on LinkedIn."),
         stateless_http=True,
         json_response=True,
         streamable_http_path="/mcp",
@@ -169,7 +174,109 @@ def build_mcp(get_svc: Callable[[], BrowserAgentService]) -> FastMCP:
                 "last_sync": last.isoformat() if last else None,
                 "sync_in_progress": svc.sync_in_progress, "last_error": svc.last_error}
 
+    if get_li is not None:
+        _add_linkedin_tools(mcp, get_li)
     return mcp
+
+
+def _first(name: str) -> str:
+    return (name or "").split()[0] if name else "them"
+
+
+def _speak_people(people) -> str:
+    if not people:
+        return "Nobody stands out yet. Like or read a few more posts."
+    bits = [f"{p.name}" + (f" from {p.company}" if p.company else "") for p in people[:2]]
+    return "Worth reaching out to: " + " and ".join(bits) + "."
+
+
+def _add_linkedin_tools(mcp: FastMCP, get_li: Callable[[], LinkedInService]) -> None:
+    @mcp.tool(description="What the student saw and did on LinkedIn this session (via the "
+                          "Nova Chrome extension): posts seen, people worth reaching out to "
+                          "with reasons, companies, interests, recent likes. Instant. Use for "
+                          "'who should I reach out to' / 'what did I find on LinkedIn'. "
+                          "Say `speak`; details only if asked.")
+    async def linkedin_session_summary(max_people: int = 3) -> dict:
+        li = get_li()
+        s = li.store.summary(max(1, min(max_people, 10)))
+        return {"speak": f"You've looked at {s.posts_seen} posts. " + _speak_people(s.people),
+                "people": [{"name": p.name, "headline": p.headline, "company": p.company,
+                            "why": p.reasons, "action": p.suggested_action,
+                            "post_id": p.post_ids[-1]} for p in s.people],
+                "companies": [c.name for c in s.companies[:5]],
+                "interests": [i.topic for i in s.interests[:5]],
+                "recent_activity": [f"{a.kind} {a.author_name}"
+                                    for a in li.store.recent_activity(5)]}
+
+    @mcp.tool(description="Recent LinkedIn posts the student scrolled past (id, author, "
+                          "short text). engaged_only=true keeps ones they liked / read / "
+                          "expanded. Say `speak`.")
+    async def linkedin_recent_posts(limit: int = 5, engaged_only: bool = False) -> dict:
+        posts = get_li().store.recent(max(1, min(limit, 20)), engaged_only)
+        return {"speak": (f"Last posts: " + ", ".join(p.author_name for p in posts[:3]) + "."
+                          if posts else "No LinkedIn posts yet."),
+                "posts": [{"id": p.id, "author": p.author_name, "headline": p.author_headline,
+                           "text": p.text[:300], "engaged": p.score > 0} for p in posts]}
+
+    @mcp.tool(description="Draft what the student could write on LinkedIn, shown in their "
+                          "LinkedIn side panel to copy. person = the author's name as the "
+                          "student said it ('Marcus'), or leave empty for the post on their "
+                          "screen right now. kind: comment (for 'what should I comment'), "
+                          "dm (for 'help me reach out / connect'), or both. note = anything "
+                          "the student wants included. Takes ~5 s. Never posts. Say `speak`.")
+    async def linkedin_draft_message(person: str | None = None, kind: str = "comment",
+                                     note: str | None = None,
+                                     post_id: str | None = None) -> dict:
+        if kind not in ("comment", "dm", "both"):
+            kind = "comment"
+        card = await get_li().draft_card(post_id, person, kind, note)
+        d = card.drafts
+        if card.status != "done" or d is None:
+            return {"speak": "I couldn't draft that one. Try again in a moment.",
+                    "card_id": card.id, "error": card.error}
+        who = _first(d.author_name)
+        what = {"comment": "two comment options", "dm": "a connection note and a message",
+                "both": "two comments and a reach-out message"}[kind]
+        speak = f"I put {what} for {who}'s post in your LinkedIn panel."
+        if kind == "comment" and d.comments:
+            speak += f" First one: {d.comments[0]}"
+        return {"speak": speak, "card_id": card.id, "author": d.author_name,
+                "comments": d.comments, "connection_note": d.connection_note, "dm": d.dm}
+
+    @mcp.tool(description="Research a company in the background (what they do, a recent "
+                          "fact, the CEO, the CEO's LinkedIn link) and draft 2 short messages "
+                          "to the CEO. Result appears in the student's LinkedIn panel in "
+                          "~20 s. company = name as said ('Ramp'); or leave empty and give "
+                          "person, or nothing for the post on screen. Say `speak` and move "
+                          "on; use linkedin_get_research if they ask what you found.")
+    async def linkedin_research_company(company: str | None = None,
+                                        person: str | None = None) -> dict:
+        card = get_li().start_research(company, person)
+        name = card.title.removeprefix("Researching ").strip()
+        if card.status == "failed":
+            return {"speak": f"I can't research right now: {card.error}", "card_id": card.id}
+        return {"speak": f"On it. I'm looking up {name} and its CEO. It'll pop up in your "
+                         "LinkedIn panel in about 20 seconds.", "card_id": card.id,
+                "status": card.status}
+
+    @mcp.tool(description="The latest company research (or the one for `company`): short "
+                          "brief, CEO, CEO LinkedIn link, 2 draft messages. status=working "
+                          "means it isn't finished yet. Say `speak`.")
+    async def linkedin_get_research(company: str | None = None) -> dict:
+        cards = [c for c in get_li().recent_cards(30) if c.kind == "research"]
+        if company:
+            cards = [c for c in cards if company.lower() in c.title.lower()] or cards
+        if not cards:
+            return {"speak": "I haven't researched any company yet."}
+        c = cards[0]
+        if c.status == "working":
+            return {"speak": "Still researching, give me a few more seconds.", "status": "working"}
+        if c.status == "failed" or c.research is None:
+            return {"speak": f"That research didn't work: {c.error}", "status": "failed"}
+        r = c.research
+        return {"speak": r.speak, "status": "done", "company": r.company, "summary": r.summary,
+                "ceo": r.ceo_name, "ceo_linkedin_url": r.ceo_linkedin_url,
+                "messages": r.messages}
 
 
 class KeyGuard:

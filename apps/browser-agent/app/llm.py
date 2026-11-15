@@ -122,24 +122,32 @@ class GeminiClassifier:
         raise RuntimeError("All Gemini models failed -> " + " | ".join(errors))
 
     async def _call(self, model: str, items: list[tuple[RawItem, str]]) -> dict[str, LLMResult]:
-        body = {
-            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-            "contents": [{"role": "user", "parts": [{"text": json.dumps(
-                [item_payload(r, c) for r, c in items], default=str)}]}],
-            "generationConfig": {
-                "temperature": 0,
-                "responseMimeType": "application/json",
-                "responseSchema": RESPONSE_SCHEMA,
-            },
-        }
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(GEMINI_URL.format(model=model),
-                                     headers={"x-goog-api-key": self.api_key}, json=body)
-        if resp.status_code != 200:
-            raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
-        data = resp.json()
-        try:
-            text = data["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError) as exc:
-            raise RuntimeError(f"Gemini returned no content: {str(data)[:300]}") from exc
+        text = await gemini_json(self.api_key, model, SYSTEM_PROMPT,
+                                 json.dumps([item_payload(r, c) for r, c in items], default=str),
+                                 RESPONSE_SCHEMA, self.timeout, temperature=0)
         return parse_results(text)
+
+
+async def gemini_json(api_key: str, model: str, system: str, user_text: str,
+                      schema: dict, timeout: float, temperature: float = 0) -> str:
+    """One Gemini generateContent call with a JSON response schema. Returns the raw
+    JSON text. Raises RuntimeError / httpx.HTTPError on failure (callers fall back)."""
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "responseMimeType": "application/json",
+            "responseSchema": schema,
+        },
+    }
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.post(GEMINI_URL.format(model=model),
+                                 headers={"x-goog-api-key": api_key}, json=body)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
+    data = resp.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Gemini returned no content: {str(data)[:300]}") from exc

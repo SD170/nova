@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     gemini_fallback_models: Annotated[list[str], NoDecode] = ["gemini-3.5-flash-lite"]
     gemini_timeout_seconds: float = 30
 
+    # LinkedIn co-pilot (see app/linkedin.py). Drafts only, never posts.
+    # Who the drafts should sound like (used in the Gemini prompt)
+    linkedin_user_blurb: str = ("ASU computer science student building Student Jarvis, an AI "
+                                "assistant for students, at SunHacks 2026. Looking for SWE / AI "
+                                "internships and to meet founders and engineers.")
+    linkedin_max_posts: int = 300  # session buffer cap (oldest dropped)
+
     # TinyFish: API key + the Browser Context Profile that is signed into Canvas
     tinyfish_api_key: str = ""
     tinyfish_base_url: str = "https://agent.tinyfish.ai"
@@ -68,6 +75,10 @@ class Settings(BaseSettings):
     @property
     def materials_dir(self) -> Path:
         return self.data_dir / "materials"
+
+    @property
+    def linkedin_path(self) -> Path:
+        return self.data_dir / "linkedin_session.json"
 
     @property
     def llm_active(self) -> bool:

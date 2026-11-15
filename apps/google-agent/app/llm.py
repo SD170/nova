@@ -7,6 +7,8 @@ from typing import Any
 
 import httpx
 
+from .events import track
+
 log = logging.getLogger(__name__)
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -30,9 +32,11 @@ async def gemini_json(api_key: str, models: list[str], system: str, user_text: s
         temporary = False
         for model in models:
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(GEMINI_URL.format(model=model),
-                                             headers={"x-goog-api-key": api_key}, json=body)
+                with track("gemini", "Ask Gemini for structured JSON",
+                            note=model):
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        resp = await client.post(GEMINI_URL.format(model=model),
+                                                 headers={"x-goog-api-key": api_key}, json=body)
                 if resp.status_code != 200:
                     temporary = temporary or resp.status_code in (429, 500, 502, 503, 504)
                     raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text[:200]}")

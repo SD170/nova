@@ -627,6 +627,89 @@ _REPLY_CAP = 240
 
 CRED_AGENT_URL = os.environ.get("CRED_AGENT_URL") or "http://127.0.0.1:9010"
 
+# ──── Mint retry queue — honest failure handling ──────────────────────
+# When /mint_credential fails (Canvas tunnel offline, Solana degraded,
+# cred-agent crash), we must NOT lie to the user ("done" when it isn't).
+# Instead we queue the mint body to a file + tell the user we'll retry.
+# Worker polls every 60s and re-fires. On success, pushes a new event
+# (provider=solana or tinyfish depending on which leg originally failed)
+# so the UI chip shows the retry outcome.
+
+MINT_RETRY_PATH = HERE / "mint_retries.jsonl"
+
+
+def _enqueue_mint_retry(mint_body: dict[str, Any], reason: str) -> None:
+    """Append one pending retry. Plain JSONL so a human can inspect/edit."""
+    try:
+        entry = {
+            "queued_at": time.time(),
+            "attempts": 0,
+            "last_reason": reason[:200],
+            "body": mint_body,
+        }
+        with open(MINT_RETRY_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+        _emit_event("solana", "mint queued for retry",
+                     status="error", note=reason[:80])
+        log.info("mint-retry enqueued: %s", reason[:100])
+    except Exception as exc:  # noqa: BLE001
+        log.error("could not enqueue mint retry: %s", exc)
+
+
+async def _mint_retry_worker() -> None:
+    """Background task: re-fire queued mints every 60s. Non-fatal on error
+    (we keep the entry for the next pass)."""
+    while True:
+        try:
+            if MINT_RETRY_PATH.exists():
+                lines = MINT_RETRY_PATH.read_text(encoding="utf-8").splitlines()
+                remaining: list[str] = []
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue  # drop malformed
+                    entry["attempts"] = int(entry.get("attempts", 0)) + 1
+                    # Give up after 20 attempts (20 minutes @ 60s). The
+                    # user should see enough signal from the chip by then.
+                    if entry["attempts"] > 20:
+                        log.warning("mint-retry giving up after 20 attempts: %r",
+                                    entry.get("body"))
+                        continue
+                    d, status = await asyncio.to_thread(
+                        _post_json_sync, f"{CRED_AGENT_URL}/mint_credential",
+                        entry["body"], 120)
+                    if status < 400 and d.get("status") in ("minted", "already_minted"):
+                        log.info("mint-retry succeeded after %d attempts: %s",
+                                 entry["attempts"], d.get("id") or d.get("cred_id"))
+                        _emit_event("solana", "mint retry succeeded",
+                                     status="ok",
+                                     note=(d.get("id") or d.get("cred_id") or "")[:80])
+                    else:
+                        entry["last_reason"] = str(d.get("detail") or d.get("error")
+                                                    or f"http {status}")[:200]
+                        remaining.append(json.dumps(entry))
+                # Rewrite file with still-pending entries
+                if remaining:
+                    MINT_RETRY_PATH.write_text("\n".join(remaining) + "\n",
+                                                encoding="utf-8")
+                else:
+                    try:
+                        MINT_RETRY_PATH.unlink()
+                    except FileNotFoundError:
+                        pass
+        except Exception as exc:  # noqa: BLE001
+            log.exception("mint-retry worker iteration failed: %s", exc)
+        await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def _start_mint_retry_worker() -> None:
+    asyncio.create_task(_mint_retry_worker())
+
+
 
 def _post_json_sync(url: str, body: dict[str, Any],
                     timeout_s: float) -> tuple[dict[str, Any], int]:
@@ -664,6 +747,12 @@ async def _mint_and_inject(turn_id: str, call_id: str,
     """
     t0 = time.time()
 
+    # Register a task so the UI's right-side panel shows "Minting credential…"
+    # running while the Solana pipeline is in flight — matches ask_brain tasks
+    # so the user sees ALL background work in one place.
+    task_entry = _register_task(call_id, "Minting credential on Solana")
+    task_id = task_entry["id"]
+
     done = asyncio.Event()
 
     async def _narrate() -> None:
@@ -690,6 +779,7 @@ async def _mint_and_inject(turn_id: str, call_id: str,
 
     narration = asyncio.create_task(_narrate())
 
+    msg = ""
     try:
         # Run blocking urllib in a thread so we don't block the event loop.
         d, status = await asyncio.to_thread(_post_json_sync,
@@ -697,7 +787,20 @@ async def _mint_and_inject(turn_id: str, call_id: str,
                                              mint_body, 120)
         if status >= 400:
             log.error("[t-mint %s] cred-agent %s: %r", turn_id, status, d)
-            msg = "Hit a snag minting that — try again in a sec."
+            # Honest surface: look at the detail string to tell the user
+            # WHICH leg failed. Also enqueue the body so a retry worker
+            # can attempt it later (no false 'done' message).
+            detail = str(d.get("detail") or d.get("error") or "")[:200]
+            if "canvas" in detail.lower() or "servname" in detail.lower():
+                msg = ("Canvas is offline right now, so I can't pull your "
+                        "record. I'll retry in a bit and let you know.")
+            elif "solana" in detail.lower():
+                msg = ("Solana devnet is flaky right now. I queued the "
+                        "mint and will retry when the chain comes back.")
+            else:
+                msg = ("Something went wrong on the mint — I queued it "
+                        "and will try again shortly.")
+            _enqueue_mint_retry(mint_body, reason=detail or f"http {status}")
         else:
             nft = d.get("nft") or {}
             if d.get("status") == "already_minted":
@@ -711,7 +814,9 @@ async def _mint_and_inject(turn_id: str, call_id: str,
                 msg = "Minted and signed — check your dashboard for the link."
     except Exception as exc:  # noqa: BLE001
         log.error("[t-mint %s] crashed: %s", turn_id, exc)
-        msg = "The mint service isn't reachable right now."
+        msg = ("The mint service isn't reachable right now. "
+                "I queued it and will retry in a bit.")
+        _enqueue_mint_retry(mint_body, reason=f"exception: {exc}")
     finally:
         # Signal the narrator that the real result is ready. It will bail
         # out of its next asyncio.wait_for and stop speaking.
@@ -722,6 +827,15 @@ async def _mint_and_inject(turn_id: str, call_id: str,
             await asyncio.wait_for(narration, timeout=0.3)
         except asyncio.TimeoutError:
             narration.cancel()
+        # Flip the right-side task card to done/error so the UI stops showing
+        # "Working…". Errors from _enqueue path keep status='error', successes
+        # get 'done' with the spoken message as the result.
+        try:
+            _update_task(call_id, task_id,
+                         status="error" if "queued" in msg or "not reachable" in msg else "done",
+                         result=msg, result_full=msg)
+        except Exception:  # noqa: BLE001
+            pass
     log.info("[t-mint %s] done took=%.3fs msg=%r", turn_id, time.time()-t0, msg[:80])
     _vapi_inject_say(call_id, msg)
 

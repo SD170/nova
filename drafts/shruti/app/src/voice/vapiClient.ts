@@ -136,6 +136,15 @@ export function initVapi(avatar: Avatar3DHandle): VapiHandle | null {
       desiredMuted = m
       try {
         vapi.setMuted(m)
+        // Defense-in-depth: Vapi.setMuted(true) is supposed to stop sending
+        // audio but we've seen the server-side STT finalize partials AFTER
+        // release and treat them as live user speech. Triple-stamp the mute
+        // by firing it again on microtask + next frame so any racing
+        // re-arm in the SDK lands in the muted state.
+        if (m) {
+          Promise.resolve().then(() => { try { vapi.setMuted(true) } catch { /* ignore */ } })
+          setTimeout(() => { try { vapi.setMuted(true) } catch { /* ignore */ } }, 50)
+        }
         // If Vapi dropped the call (e.g. silence timeout) and user hits
         // SPACE to unmute, restart the call so PTT works again.
         if (!m && !active) {

@@ -17,6 +17,7 @@ import httpx
 
 from .classify import LLMResult
 from .models import ItemType, RawItem
+from .events import track
 
 log = logging.getLogger(__name__)
 
@@ -141,9 +142,11 @@ async def gemini_json(api_key: str, model: str, system: str, user_text: str,
             "responseSchema": schema,
         },
     }
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        resp = await client.post(GEMINI_URL.format(model=model),
-                                 headers={"x-goog-api-key": api_key}, json=body)
+    with track("gemini", "Classify Canvas items with Gemini",
+                note=model):
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(GEMINI_URL.format(model=model),
+                                     headers={"x-goog-api-key": api_key}, json=body)
     if resp.status_code != 200:
         raise RuntimeError(f"Gemini HTTP {resp.status_code}: {resp.text[:300]}")
     data = resp.json()

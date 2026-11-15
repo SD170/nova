@@ -740,3 +740,16 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Small pill inline with the tool name: "generateContent ×3". */
+.activity-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 9999px;
+  background: rgb(167 139 250 / 0.18);
+  color: #d6c7ff;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums;
+}

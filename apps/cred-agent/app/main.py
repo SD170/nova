@@ -205,7 +205,7 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
             if not shot_selector:
                 shot_selector = DEFAULT_WITNESS_SELECTOR
         if shot_url or shot_path:
-            with _ev.track("tinyfish", "capture Canvas/MyASU screenshot",
+            with _ev.track("tinyfish", "Screenshot MyASU grades page",
                             note=(shot_url or shot_path)):
                 png_bytes = browser_client.try_capture(
                     path=shot_path, url=shot_url, selector=shot_selector
@@ -267,8 +267,8 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
     memo = solana_memo.build_memo_body(cred_id, digest_hex, sig_b58)
     priv = os.environ["STUDENT_PRIVATE_KEY_BASE58"]
     try:
-        with _ev.track("solana", "Memo program anchor",
-                        note=f"devnet • {cred_id}"):
+        with _ev.track("solana", "Hash anchor on devnet (Memo program)",
+                        note=f"cred {cred_id}"):
             tx = solana_memo.post_memo(priv, memo)
     except Exception as e:
         raise HTTPException(502, f"solana post failed: {e}")
@@ -312,7 +312,7 @@ async def mint_credential(body: Optional[MintIn] = None) -> dict[str, Any]:
         name = body.nft_name or f"Nova Cred {cred_id.split('_')[-1]}"
         symbol = body.nft_symbol or "NOVA"
         try:
-            with _ev.track("solana", "Metaplex NFT mint",
+            with _ev.track("solana", "Mint credential NFT (Metaplex)",
                             note=f"devnet • {name[:32]}"):
                 nft = nft_mint.mint_nft(
                     name=name[:32],       # Metaplex hard cap

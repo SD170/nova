@@ -62,10 +62,23 @@ class MemoryClient:
         if not self.enabled:
             raise MemoryUnavailable("Memory isn't set up yet (SUPERMEMORY_API_KEY is empty).")
         url = f"{self.base}/ns/{self.namespace}{path}"
+        # Telemetry: human labels per endpoint so the UI chip tells reads
+        # from writes at a glance.
+        from .events import track
+        endpoint = path.lstrip("/").split("?", 1)[0].split("/", 1)[0] or "api"
+        _tool_labels = {
+            "search":   "Recall from Supermemory",
+            "document": "Save fact to Supermemory",
+            "profile":  "Load student profile",
+            "list":     "List recent memories",
+            "memories": "Forget memory (semantic delete)",
+        }
+        tool = _tool_labels.get(endpoint, f"Supermemory /{endpoint}")
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.request(method, url, json=body if body is not None else {},
-                                            headers={"Authorization": f"Bearer {self.api_key}"})
+            with track("supermemory", tool):
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    resp = await client.request(method, url, json=body if body is not None else {},
+                                                headers={"Authorization": f"Bearer {self.api_key}"})
         except httpx.HTTPError as exc:
             raise MemoryUnavailable(f"Could not reach supermemory ({exc}).") from exc
         if resp.status_code == 401:
@@ -81,14 +94,42 @@ class MemoryClient:
 
     async def remember(self, content: str, doc_id: str | None = None, kind: str = "fact",
                        metadata: dict | None = None) -> str:
+        """Fire-and-forget write. Returns the doc_id immediately — supermemory's
+        'dreaming:instant' acknowledges within a few hundred ms but the
+        semantic index needs ~1-2s to be queryable. The caller never needs
+        to block on either; we schedule the HTTP POST on the event loop and
+        return.
+
+        If supermemory is unreachable or returns an error, we log it (via
+        the events emitter so it shows up in the UI chip) but do NOT raise —
+        the quiz pipeline should keep running even if memory is degraded.
+        """
         doc_id = doc_id or f"{kind}_{hashlib.sha1(content.encode()).hexdigest()[:12]}"
         meta = {"kind": kind, "saved_at": datetime.now(timezone.utc).isoformat(), **(metadata or {})}
-        await self._req("POST", "/document", {"content": content, "id": doc_id,
-                                              "metadata": meta, "dreaming": "instant"})
+        body = {"content": content, "id": doc_id, "metadata": meta, "dreaming": "instant"}
+
+        async def _fire() -> None:
+            try:
+                await self._req("POST", "/document", body)
+            except MemoryUnavailable as exc:
+                log.warning("supermemory remember failed (fire-and-forget): %s", exc)
+
+        # asyncio.create_task returns a Task that runs concurrently without
+        # blocking the caller. The caller gets the doc_id back right away.
+        import asyncio
+        asyncio.create_task(_fire())
         return doc_id
 
-    async def forget(self, query: str) -> dict:
-        return await self._req("DELETE", "/memories/semantic", {"query": query})
+    async def forget(self, query: str) -> None:
+        """Fire-and-forget semantic delete. Same non-blocking contract as
+        remember() — caller never awaits the supermemory round-trip."""
+        async def _fire() -> None:
+            try:
+                await self._req("DELETE", "/memories/semantic", {"query": query})
+            except MemoryUnavailable as exc:
+                log.warning("supermemory forget failed (fire-and-forget): %s", exc)
+        import asyncio
+        asyncio.create_task(_fire())
 
     # ---------------- read ----------------
 

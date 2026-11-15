@@ -35,7 +35,7 @@ const AVATAR_DEBUG = params.has('debug')
 // Dev builds (`npm run dev` or ?dev) answer with a sample clip when no backend is wired.
 const SHOW_DEV = import.meta.env.DEV || params.has('dev')
 const HINT_IDLE_MS = 4000
-const IDLE_DISSOLVE_MS = 2 * 60 * 1000 // no interaction for 2 min → head dissolves
+const IDLE_DISSOLVE_MS = 10 * 60 * 1000 // no interaction for 10 min → head dissolves
 const DEV_SAMPLE = `${import.meta.env.BASE_URL}dev/sample-voice.m4a`
 
 declare global {

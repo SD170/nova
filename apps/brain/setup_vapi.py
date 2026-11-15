@@ -119,13 +119,13 @@ def _ask_brain_tool() -> dict:
             # Fires IMMEDIATELY when Nova decides to delegate — hides the ~2-8s Hermes wait.
             # blocking=false so it layers under the real reply when it arrives.
             {"type": "request-start",
-             "content": "One sec, let me pull that up.",
+             "content": "Give me a moment.",
              "blocking": False},
             # Fires if the brain takes longer than request-start-delayed-millis (default 1s).
             # Rotating phrases via multiple entries isn't supported; Vapi picks one.
             {"type": "request-response-delayed",
-             "content": "Still thinking, give me a moment.",
-             "timingMilliseconds": 2000},
+             "content": "Almost there.",
+             "timingMilliseconds": 7000},
             # Fires if the call to /ask_brain hard-fails.
             {"type": "request-failed",
              "content": "Hit a snag reaching that — try again?"},
@@ -188,15 +188,13 @@ def nova_config(shruti_id: str) -> dict:
         # Never idle — speak a filler every 6s while thinking/waiting.
         "messagePlan": {
             "idleMessages": [
-                "Still here, one sec.",
-                "Hmm, let me think.",
                 "Working on it.",
-                "Give me a moment.",
-                "Hang on, thinking.",
+                "Just a sec.",
+                "Hang tight.",
             ],
-            "idleTimeoutSeconds": 6,
-            "idleMessageMaxSpokenCount": 5,
-            "silenceTimeoutMessage": "Still here when you need me.",
+            "idleTimeoutSeconds": 15,
+            "idleMessageMaxSpokenCount": 1,
+            "silenceTimeoutMessage": "",
         },
     }
 
@@ -252,15 +250,13 @@ def shruti_config(nova_id: str) -> dict:
         # Never idle — speak a filler every 6s while thinking/waiting.
         "messagePlan": {
             "idleMessages": [
-                "Still here, one sec.",
-                "Hmm, let me think.",
                 "Working on it.",
-                "Give me a moment.",
-                "Hang on, thinking.",
+                "Just a sec.",
+                "Hang tight.",
             ],
-            "idleTimeoutSeconds": 6,
-            "idleMessageMaxSpokenCount": 5,
-            "silenceTimeoutMessage": "Still here when you need me.",
+            "idleTimeoutSeconds": 15,
+            "idleMessageMaxSpokenCount": 1,
+            "silenceTimeoutMessage": "",
         },
     }
 

@@ -464,9 +464,11 @@ async def _chat(request: Request):
             if sid and call_id:
                 _sessions_by_call[call_id] = sid
 
-        filler = _pick_filler(user_text)
-        if filler:
-            log.info("[t-turn %s] filler=%r (speaks while hermes spawns)", turn_id, filler)
+        # Fillers are now Vapi's job (assistant messagePlan.idleMessages +
+        # ask_brain tool.messages). Speaking our own here would layer under
+        # Vapi's fillers → user hears "got it... one sec... hmm, thinking..."
+        # all stacked. Suppressed.
+        filler = None
 
         resp = StreamingResponse(
             _stream_hermes_to_sse(prompted, session, model, _remember, filler=filler),

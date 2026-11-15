@@ -45,3 +45,6 @@ logs/
 .git-autosync.sh
 .git-autosync.log
 .git-autosync.pid
+
+# Removed on purpose (Abishek): environment/config files with addresses and ids never go in the repo
+shared.env

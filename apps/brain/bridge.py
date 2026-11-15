@@ -36,6 +36,8 @@ from typing import Any, AsyncIterator
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
+import urllib.request
+import urllib.error
 
 HERE = Path(__file__).parent
 
@@ -541,12 +543,18 @@ async def ask_brain(request: Request):
 
     # Vapi wraps function tool calls in message.toolCalls
     tool_calls = (body.get("message") or {}).get("toolCalls") or []
+    call_id = ((body.get("message") or {}).get("call") or {}).get("id")
     if not tool_calls:
         # Fall back: accept a plain {question: "..."} for curl testing
         q = (body.get("question") or "").strip()
         if not q:
             raise HTTPException(status_code=400, detail="missing toolCalls or question")
         tool_calls = [{"id": f"tc-{turn_id}", "function": {"arguments": {"question": q}}}]
+        sync_mode = True  # curl probe: wait for Hermes, return the real reply
+    else:
+        sync_mode = not bool(call_id)
+        # If we somehow don't have a call_id from Vapi, fall back to sync so
+        # at least the result makes it back via the tool-call channel.
 
     results = []
     for tc in tool_calls:
@@ -566,20 +574,111 @@ async def ask_brain(request: Request):
             continue
 
         log.info("[t-ask_brain %s] question=%r", turn_id, question[:120])
-        # Nova persona is already the default in SOUL.md; prepend tag for consistency.
         prompted = f"[persona: nova]\n{question}"
-        try:
-            reply, _ = await _run_hermes(prompted, resume_session=None)
-        except HTTPException as exc:
-            log.error("[t-ask_brain %s] hermes error: %s", turn_id, exc.detail)
-            reply = "I hit an error reaching that — try again in a sec."
-        if not reply:
-            reply = "No result from that lookup."
-        log.info("[t-ask_brain %s] reply_len=%d took=%.3fs",
-                 turn_id, len(reply), time.time() - t_ingress)
-        results.append({"toolCallId": tc_id, "result": reply})
+        if sync_mode:
+            # No call_id (curl probe or old Vapi payload) → blocking old behavior
+            try:
+                reply, _ = await _run_hermes(prompted, resume_session=None)
+            except HTTPException as exc:
+                log.error("[t-ask_brain %s] hermes error: %s", turn_id, exc.detail)
+                reply = "I hit an error reaching that — try again in a sec."
+            if not reply:
+                reply = "No result from that lookup."
+            reply = _cap_reply(reply)
+            log.info("[t-ask_brain %s] SYNC reply_len=%d took=%.3fs",
+                     turn_id, len(reply), time.time() - t_ingress)
+            results.append({"toolCallId": tc_id, "result": reply})
+        else:
+            # ASYNC: return "on it" immediately; Hermes runs in background;
+            # when done, inject the reply into the live Vapi call via /control.
+            log.info("[t-ask_brain %s] ASYNC dispatching call_id=%s", turn_id, call_id)
+            asyncio.create_task(
+                _run_brain_and_inject(turn_id, call_id, prompted, question)
+            )
+            results.append({
+                "toolCallId": tc_id,
+                "result": "Working on it in the background — I'll speak the answer when I have it.",
+            })
 
     return JSONResponse({"results": results})
+
+
+# Max chars we'll let into TTS from a single Hermes reply. Longer gets
+# truncated at the last sentence boundary before this cap. Keeps turns < ~8s.
+_REPLY_CAP = 240
+
+
+def _cap_reply(text: str) -> str:
+    text = (text or "").strip()
+    if len(text) <= _REPLY_CAP:
+        return text
+    # Cut at the last period/question/exclamation before the cap
+    head = text[:_REPLY_CAP]
+    for sep in (". ", "? ", "! ", "\n"):
+        i = head.rfind(sep)
+        if i > 80:   # don't produce a 10-word reply
+            return head[: i + 1].strip()
+    return head.rstrip() + "…"
+
+
+async def _run_brain_and_inject(turn_id: str, call_id: str,
+                                prompted: str, question: str) -> None:
+    """Background worker: run Hermes, then inject the reply into the live call."""
+    t0 = time.time()
+    try:
+        reply, _ = await _run_hermes(prompted, resume_session=None)
+    except HTTPException as exc:
+        log.error("[t-ask_brain %s] async hermes error: %s", turn_id, exc.detail)
+        reply = "I hit a snag looking that up."
+    except Exception as exc:
+        log.exception("[t-ask_brain %s] async hermes crash: %s", turn_id, exc)
+        reply = "I hit a snag looking that up."
+    if not reply:
+        reply = "Couldn't find anything on that."
+    reply = _cap_reply(reply)
+    log.info("[t-ask_brain %s] ASYNC done len=%d took=%.3fs q=%r",
+             turn_id, len(reply), time.time() - t0, question[:80])
+    ok = _vapi_inject_say(call_id, reply)
+    log.info("[t-ask_brain %s] inject call_id=%s ok=%s", turn_id, call_id, ok)
+
+
+VAPI_PRIVATE_KEY = os.environ.get("VAPI_PRIVATE_KEY", "")
+VAPI_API_BASE = "https://api.vapi.ai"
+
+
+def _vapi_inject_say(call_id: str, content: str) -> bool:
+    """POST to Vapi's live-call control URL to make the assistant speak `content`.
+
+    Uses the documented `POST /call/{id}/control` with `{"type": "say"}`.
+    Returns True on 2xx, False otherwise.
+    """
+    if not VAPI_PRIVATE_KEY or not call_id or not content:
+        return False
+    url = f"{VAPI_API_BASE}/call/{call_id}/control"
+    body = json.dumps({
+        "type": "say",
+        "content": content,
+        "endCallAfterSpoken": False,
+        "triggerResponseEnabled": False,
+    }).encode()
+    req = urllib.request.Request(
+        url, data=body,
+        headers={
+            "Authorization": f"Bearer {VAPI_PRIVATE_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "nova-bridge/0.2",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        log.error("vapi inject HTTP %d: %s", e.code, e.read()[:300])
+        return False
+    except Exception as e:
+        log.error("vapi inject error: %s", e)
+        return False
 
 
 

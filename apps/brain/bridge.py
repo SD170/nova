@@ -178,20 +178,45 @@ def _extract_last_user_text(body: dict[str, Any]) -> str:
 # ────────── Hermes invocation ──────────
 
 async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str]:
-    """Invoke `hermes chat -q` and return (response_text, session_id).
+    """Collect the full Hermes reply (used for non-streaming callers).
 
-    If `resume_session` is given, use `-r <id>` to continue that session.
-    Otherwise start a fresh one; caller stores the returned session_id for next turn.
+    Internally reuses the streaming path, so there's one code path for Hermes I/O.
+    """
+    chunks: list[str] = []
+    session_id = ""
+    async for kind, payload in _run_hermes_stream(prompt, resume_session):
+        if kind == "chunk":
+            chunks.append(payload)
+        elif kind == "session":
+            session_id = payload
+    return "".join(chunks).strip(), session_id
+
+
+_WARN_PREFIXES = ("⚠", "WARNING", "warning:", "Warning:")
+
+
+async def _run_hermes_stream(
+    prompt: str, resume_session: str | None
+) -> AsyncIterator[tuple[str, str]]:
+    """Spawn Hermes and yield ("chunk", text) tokens as they arrive.
+
+    When the subprocess ends we also yield ("session", session_id) if Hermes
+    emitted a trailing `session_id: <id>` line.
+
+    Behavior preserved from the old blocking path:
+      - Leading `⚠ tirith …` / `WARNING:` lines are dropped (never spoken).
+      - Markdown is stripped so TTS doesn't read ** / ## / - / ` literally.
+      - Hermes exit != 0 → HTTP 502.
+      - Trailing `session_id: <id>` line is extracted (not spoken).
     """
     env = os.environ.copy()
     env["HERMES_HOME"] = str(HERMES_PROFILE_HOME)
-    # -Q strips spinner/banner, outputs only the final response + a session_id line.
     args = [
         HERMES_BIN, "chat",
         "-q", prompt,
         "-Q",
         "--no-restore-cwd",
-        "--ignore-rules",       # skip project AGENTS.md pickup — we have SOUL.md
+        "--ignore-rules",
     ]
     if resume_session:
         args += ["-r", resume_session]
@@ -204,52 +229,69 @@ async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str
         env=env,
     )
     log.info("[t-hermes] spawned pid=%s in %.3fs", proc.pid, time.time() - t_launch)
-    try:
-        t_wait = time.time()
-        stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(), timeout=MAX_HERMES_SECONDS
-        )
-        log.info("[t-hermes] exit pid=%s subprocess_time=%.3fs", proc.pid, time.time() - t_wait)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
-        raise HTTPException(status_code=504, detail=f"hermes turn exceeded {MAX_HERMES_SECONDS}s")
-    dt = time.time() - t_launch
 
-    out = (stdout_b or b"").decode("utf-8", errors="replace").strip()
-    err = (stderr_b or b"").decode("utf-8", errors="replace").strip()
-
-    # Drop any leading Hermes warning lines (e.g. "⚠ tirith security scanner ...")
-    # that would otherwise end up spoken by TTS.
-    while out.startswith(("⚠", "WARNING", "warning:", "Warning:")):
-        nl = out.find("\n")
-        if nl == -1:
-            out = ""
-            break
-        out = out[nl + 1:].lstrip()
-
-    # Strip markdown so Vapi's TTS doesn't say "double asterisk" / "pound".
-    out = _strip_markdown_for_tts(out)
-
-    if proc.returncode != 0:
-        log.error("hermes exit=%d stderr=%s", proc.returncode, err[:500])
-        raise HTTPException(status_code=502, detail=f"hermes failed: {err[:200] or 'unknown'}")
-
-    # -Q format: trailing line = "session_id: <id>"; everything above = reply
+    stdout = proc.stdout
+    assert stdout is not None
+    # Line-buffered streaming with a dropped-warning guard that only fires at
+    # the start of the reply. Session_id is sniffed from the last line.
+    past_warnings = False
+    first_chunk_logged = False
+    buffered_last: str | None = None  # last line held back in case it's session_id
     session_id = ""
-    lines = out.splitlines()
-    if lines and lines[-1].startswith("session_id:"):
-        session_id = lines[-1].split(":", 1)[1].strip()
-        reply = "\n".join(lines[:-1]).strip()
-    elif len(lines) >= 2 and lines[-2].startswith("session_id:"):
-        # sometimes session_id arrives before trailing newline-only line
-        session_id = lines[-2].split(":", 1)[1].strip()
-        reply = "\n".join(lines[:-2]).strip()
-    else:
-        reply = out
 
-    log.info("[t-hermes] total=%.3fs reply_len=%d", dt, len(reply))
-    return reply, session_id
+    try:
+        while True:
+            try:
+                raw = await asyncio.wait_for(stdout.readline(), timeout=MAX_HERMES_SECONDS)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise HTTPException(status_code=504, detail=f"hermes turn exceeded {MAX_HERMES_SECONDS}s")
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="replace")
+            # Drop leading warning lines
+            if not past_warnings:
+                stripped = line.lstrip()
+                if stripped == "" or any(stripped.startswith(p) for p in _WARN_PREFIXES):
+                    continue
+                past_warnings = True
+            # Hold the previous line until we see what comes after it. If the
+            # NEXT line turns out to be `session_id:`, the held one was the
+            # last real content; if not, flush the held one and buffer this one.
+            if buffered_last is not None:
+                flushed = _strip_markdown_for_tts(buffered_last)
+                if flushed:
+                    if not first_chunk_logged:
+                        log.info("[t-hermes] first-chunk at %.3fs", time.time() - t_launch)
+                        first_chunk_logged = True
+                    yield ("chunk", flushed)
+                buffered_last = None
+            if line.startswith("session_id:"):
+                session_id = line.split(":", 1)[1].strip()
+                continue
+            buffered_last = line
+        # End of stream: flush remaining buffered line (if any)
+        if buffered_last is not None:
+            flushed = _strip_markdown_for_tts(buffered_last)
+            if flushed:
+                if not first_chunk_logged:
+                    log.info("[t-hermes] first-chunk at %.3fs", time.time() - t_launch)
+                yield ("chunk", flushed)
+
+        rc = await proc.wait()
+        dt = time.time() - t_launch
+        if rc != 0:
+            err = (await proc.stderr.read() if proc.stderr else b"").decode(errors="replace")[:500]
+            log.error("hermes exit=%d stderr=%s", rc, err)
+            raise HTTPException(status_code=502, detail=f"hermes failed: {err[:200] or 'unknown'}")
+        log.info("[t-hermes] total=%.3fs", dt)
+        if session_id:
+            yield ("session", session_id)
+    finally:
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
 
 
 # ────────── OpenAI SSE emitter ──────────
@@ -273,8 +315,22 @@ def _openai_chunk(text: str, model: str, *, finish: str | None = None) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-async def _stream_response(reply: str, model: str) -> AsyncIterator[bytes]:
-    yield _openai_chunk(reply, model).encode()
+async def _stream_hermes_to_sse(
+    prompt: str,
+    resume_session: str | None,
+    model: str,
+    on_session_id,
+) -> AsyncIterator[bytes]:
+    """Pipe Hermes output straight to Vapi as OpenAI SSE chunks.
+
+    Each line Hermes emits becomes one `delta.content` chunk, so Vapi starts
+    TTS on the first spoken sentence instead of waiting for the whole reply.
+    """
+    async for kind, payload in _run_hermes_stream(prompt, resume_session):
+        if kind == "chunk":
+            yield _openai_chunk(payload + "\n", model).encode()
+        elif kind == "session":
+            on_session_id(payload)
     yield _openai_chunk("", model, finish="stop").encode()
     yield b"data: [DONE]\n\n"
 
@@ -323,6 +379,26 @@ async def _chat(request: Request):
     session = _sessions_by_call.get(call_id)
     prompted = f"[persona: {persona}]\n{user_text}"
 
+    model = body.get("model") or "hermes-shruti"
+    stream = bool(body.get("stream", False))
+
+    if stream:
+        # Streaming path: pipe Hermes stdout → Vapi as it arrives. First token
+        # reaches Vapi (and TTS) as soon as Hermes writes its first line,
+        # which can be ~2s earlier than "wait for full reply".
+        def _remember(sid: str) -> None:
+            if sid and call_id:
+                _sessions_by_call[call_id] = sid
+
+        resp = StreamingResponse(
+            _stream_hermes_to_sse(prompted, session, model, _remember),
+            media_type="text/event-stream",
+            headers={"cache-control": "no-cache"},
+        )
+        log.info("[t-turn %s] bridge→stream opened at %.3fs", turn_id, time.time() - t_ingress)
+        return resp
+
+    # Non-streaming: block, return single JSON (used by curl tests + fallback).
     t_prehermes = time.time()
     reply, new_session = await _run_hermes(prompted, resume_session=session)
     t_posthermes = time.time()
@@ -330,21 +406,8 @@ async def _chat(request: Request):
         _sessions_by_call[call_id] = new_session
     if not reply:
         reply = "Sorry, I didn't catch that. Could you say it again?"
-
     log.info("[t-turn %s] hermes_leg=%.3fs reply_len=%d",
              turn_id, t_posthermes - t_prehermes, len(reply))
-
-    model = body.get("model") or "hermes-shruti"
-    stream = bool(body.get("stream", False))
-
-    if stream:
-        resp = StreamingResponse(
-            _stream_response(reply, model),
-            media_type="text/event-stream",
-            headers={"cache-control": "no-cache"},
-        )
-        log.info("[t-turn %s] total_bridge=%.3fs → stream SSE", turn_id, time.time() - t_ingress)
-        return resp
 
     resp = JSONResponse({
         "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",

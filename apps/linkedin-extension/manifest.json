@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "Nova for LinkedIn",
+  "version": "0.2.0",
+  "description": "Student Nova: reads the LinkedIn posts you scroll past, then drafts comments, reach-outs and company research in a side panel (by voice through Nova or by click). Never posts for you.",
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.linkedin.com/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.trycloudflare.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/*"
+      ],
+      "js": [
+        "parse.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open Nova for LinkedIn"
+  }
+}

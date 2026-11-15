@@ -100,7 +100,9 @@ def _ask_brain_tool() -> dict:
             "name": "ask_brain",
             "description": (
                 "Delegate to Nova's brain for Canvas, Gmail, Calendar, memory, "
-                "research, documents, or anything factual about the user's life. "
+                "research, documents, LinkedIn (what to comment on a post, reaching "
+                "out to someone, researching a company or its CEO, who to network "
+                "with), or anything factual about the user's life. "
                 "Returns a short spoken reply. Call this BEFORE claiming any fact."
             ),
             "parameters": {

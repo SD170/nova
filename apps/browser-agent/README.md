@@ -64,9 +64,25 @@ Auth: if `CANVAS_API_KEY` is set, send header `X-Canvas-Key` on every endpoint e
 | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` |
 | `GET /materials?course_id=&topic_hint=&this_week=` | study materials list (syllabus, PDFs, Canvas pages, links) with module + week dates + `text_status`; no text |
 | `GET /materials/{id}/text?offset=&max_chars=` | plain text of one material (`[page N]` markers), cached after first call; long docs in slices via `next_offset` |
-| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Canvas-Key` **MCP answers are voice-sized:** each tool returns a one-line `speak` plus compact data (short course codes, short titles, spoken due times; see `app/voice.py`). REST endpoints keep the full data. |
+| `POST /mcp` (MCP streamable-HTTP) | same 16 tools (11 Canvas + 5 `linkedin_*`) for Hermes / any MCP client; same `X-Canvas-Key`. **MCP answers are voice-sized:** each tool returns a one-line `speak` plus compact data (short course codes, short titles, spoken due times; see `app/voice.py`). REST endpoints keep the full data. |
 
-Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
+**LinkedIn (Nova Chrome extension in `apps/linkedin-extension/`; drafts only, never posts):**
+
+| Method + path | Returns |
+|---|---|
+| `POST /linkedin/observe` | extension sends `{posts, engagements, on_screen}` → `{new_posts, updated_posts, engagements_recorded, total_posts}` |
+| `GET /linkedin/posts?limit=20&engaged_only=` | posts seen this session, newest first, with `score`, `topics`, `company` |
+| `GET /linkedin/summary?max_people=10` | `interests`, `people` (with `reasons` + `suggested_action`), `companies` |
+| `GET /linkedin/activity?limit=20` | what the student did, newest first (liked / commented / reposted / expanded / profile_click / read) + `on_screen` post ids |
+| `POST /linkedin/draft` `{post_id, kind, note?}` | 2 comment options + connection note + DM (`source: gemini\|template`) |
+| `POST /linkedin/cards/draft` `{post_id? \| person?, kind, note?}` | same drafts as a **Nova card** (empty = the post on screen) |
+| `POST /linkedin/research` `{company? \| person?}` | 202 + card (`status: working`); fills in ~20 s: brief, CEO, CEO LinkedIn URL (only one found in search), 2 messages |
+| `GET /linkedin/cards?limit=10` | Nova cards, newest first; the side panel polls this every 3 s |
+| `DELETE /linkedin/session` | forget the scroll session |
+
+MCP (voice): `linkedin_session_summary`, `linkedin_recent_posts`, `linkedin_draft_message`, `linkedin_research_company`, `linkedin_get_research`. Each returns a short `speak`; draft/research results also pop up in the side panel.
+
+Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` / `post_not_found` / `nothing_to_draft` · `422 material_text_unavailable` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
 
 ## Env vars (see `.env.example`; secrets in `.env`, gitignored)
 
@@ -84,6 +100,8 @@ Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` �
 | `TINYFISH_API_KEY` / `TINYFISH_BASE_URL` / `TINYFISH_PROFILE_ID` | — | TinyFish browser signed into Canvas |
 | `MATERIALS_MAX_MB` | `25` | Files bigger than this are listed as `too_large` (no download) |
 | `MATERIALS_PREFETCH_DAYS` / `_LIMIT` / `_SECONDS` | `7` / `12` / `60` | Each sync pre-extracts syllabus + modules dated today..+N days, max N per course, time-boxed |
+| `LINKEDIN_USER_BLURB` | ASU CS student building Student Jarvis… | Who the LinkedIn drafts should sound like (Gemini prompt) |
+| `LINKEDIN_MAX_POSTS` | `300` | Session buffer cap (`data/linkedin_session.json`) |
 
 ## Code map
 
@@ -99,6 +117,8 @@ app/
   config.py             env settings
   materials.py          Canvas modules/files/syllabus → Material list, week dates, prefetch pick, PDF → text, text cache
   mcp_server.py         MCP tools at /mcp (same service) + X-Canvas-Key guard
+  linkedin.py           LinkedIn: session store, activity, people rules, humanized Gemini drafts, Nova cards
+  li_research.py        LinkedIn company + CEO research (TinyFish search/fetch + Gemini)
   backends/
     base.py             backend contract + CanvasLoginExpired
     tinyfish.py         real Canvas via TinyFish browser + Canvas JSON
@@ -121,5 +141,5 @@ Put the URL in repo-root `shared.env` as `PUBLIC_CANVAS_BASE` (it changes every 
 
 ## Status
 
-Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics, /brief, /items/{id}, user-done overrides, background refresh, shared-secret auth, public tunnel, course materials (list + text), MCP at /mcp.
+Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics, /brief, /items/{id}, user-done overrides, background refresh, shared-secret auth, public tunnel, course materials (list + text), MCP at /mcp, LinkedIn co-pilot MVP (branch `abishek/linkedin-copilot`).
 Next: exam prep (exam dates from announcements), grades for the Daily Pulse, stress test.

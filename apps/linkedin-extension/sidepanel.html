@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova · LinkedIn</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <!-- Nova on top: a loop of Shruti's avatar (idle / thinking / listening) -->
+  <section class="hero">
+    <video id="nova" src="media/nova-idle.webm" autoplay muted loop playsinline></video>
+    <div class="hero-shade"></div>
+    <div class="hero-top">
+      <button id="pauseBtn" class="icon" title="Pause reading">❚❚</button>
+      <button id="gear" class="icon" title="Settings">⚙</button>
+    </div>
+    <div class="hero-bottom">
+      <div class="status"><span id="dot" class="dot"></span><span id="statusText">NOVA · CONNECTING</span></div>
+      <div id="counts" class="counts"></div>
+    </div>
+  </section>
+
+  <section id="settings" class="glass" hidden>
+    <label>Browser agent URL <input id="apiBase" placeholder="http://localhost:9001"></label>
+    <label>X-Canvas-Key <input id="apiKey" type="password" autocomplete="off"></label>
+    <div class="row">
+      <button id="save" class="primary">Save &amp; test</button>
+      <button id="clear" class="ghost danger">Clear session</button>
+    </div>
+    <p id="settingsMsg" class="hint"></p>
+  </section>
+
+  <!-- What Nova made for you (by voice or a click): newest pops up here -->
+  <section id="novaCard" hidden></section>
+  <div id="earlier" class="earlier"></div>
+
+  <details class="sec" id="secActivity" open>
+    <summary><span class="h">Activity</span><span class="n" id="nActivity"></span></summary>
+    <ul id="activity" class="rows"></ul>
+  </details>
+
+  <details class="sec" id="secPeople" open>
+    <summary><span class="h">Reach out to</span><span class="n" id="nPeople"></span></summary>
+    <ul id="people" class="rows"></ul>
+  </details>
+
+  <details class="sec" id="secCompanies">
+    <summary><span class="h">Companies</span><span class="n" id="nCompanies"></span></summary>
+    <ul id="companies" class="rows"></ul>
+  </details>
+
+  <details class="sec" id="secPosts">
+    <summary><span class="h">Posts you engaged with</span><span class="n" id="nPosts"></span></summary>
+    <ul id="posts" class="rows"></ul>
+  </details>
+
+  <details class="sec" id="secInterests">
+    <summary><span class="h">Your interests</span></summary>
+    <div id="interests" class="chips"></div>
+  </details>
+
+  <footer>
+    <p class="say">Try: <em>“Nova, what should I comment on this post?”</em> · <em>“Nova, research Ramp”</em></p>
+    <p class="hint">Drafts only. Nova never posts or messages for you.</p>
+  </footer>
+
+  <script src="api.js"></script>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

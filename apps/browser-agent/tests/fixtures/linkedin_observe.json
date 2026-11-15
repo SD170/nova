@@ -1,0 +1,44 @@
+{
+  "posts": [
+    {
+      "id": "urn:li:activity:1001",
+      "author_name": "Priya Raman",
+      "author_headline": "University Recruiter at Ramp | Hiring SWE interns",
+      "author_url": "https://www.linkedin.com/in/priya-raman-example",
+      "text": "We're hiring Summer 2027 software engineering interns! Our team builds AI agents for finance. Apply via the link and feel free to DM me.",
+      "post_url": "https://www.linkedin.com/feed/update/urn:li:activity:1001/"
+    },
+    {
+      "id": "urn:li:activity:1002",
+      "author_name": "Marcus Lee",
+      "author_headline": "Co-founder & CTO @ Lumen Labs (YC W26)",
+      "author_url": "https://www.linkedin.com/in/marcus-lee-example",
+      "text": "Lessons from shipping our first LLM agent to production: evals matter more than prompts. #AI #startups",
+      "post_url": "https://www.linkedin.com/feed/update/urn:li:activity:1002/"
+    },
+    {
+      "id": "urn:li:activity:1003",
+      "author_name": "Dana Ortiz",
+      "author_headline": "Marketing Manager at Acme Foods",
+      "author_url": "https://www.linkedin.com/in/dana-ortiz-example",
+      "text": "Excited to announce our new snack line launching next week.",
+      "post_url": null
+    },
+    {
+      "id": "urn:li:activity:1004",
+      "author_name": "Arizona State University",
+      "author_headline": "Education",
+      "author_url": "https://www.linkedin.com/company/arizona-state-university/",
+      "text": "SunHacks 2026 is live! 500 hackers building this weekend.",
+      "post_url": null
+    }
+  ],
+  "engagements": [
+    {"post_id": "urn:li:activity:1001", "kind": "dwell", "seconds": 8},
+    {"post_id": "urn:li:activity:1002", "kind": "liked"},
+    {"post_id": "urn:li:activity:1002", "kind": "expanded"},
+    {"post_id": "urn:li:activity:1002", "kind": "dwell", "seconds": 12},
+    {"post_id": "urn:li:activity:1003", "kind": "dwell", "seconds": 1},
+    {"post_id": "urn:li:activity:9999", "kind": "liked"}
+  ]
+}

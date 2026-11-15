@@ -13,6 +13,7 @@ import hmac
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
 from fastapi.responses import JSONResponse
@@ -25,6 +26,22 @@ from .backends import get_backend
 from .backends.base import CanvasLoginExpired
 from .cache import SnapshotCache
 from .config import Settings, get_settings
+from .linkedin import (
+    HUMAN_STYLE,
+    ActivityEvent,
+    Drafts,
+    LinkedInResearcher,
+    LinkedInDrafter,
+    LinkedInService,
+    LinkedInStore,
+    LinkedInSummary,
+    NothingToDraft,
+    NovaCard,
+    ObserveRequest,
+    ObserveResult,
+    PostNotFound,
+    StoredPost,
+)
 from .llm import GeminiClassifier
 from .mcp_server import HIDE, KeyGuard, build_mcp
 from .models import (
@@ -68,6 +85,37 @@ class MaterialsResponse(BaseModel):
     materials: list[Material]
 
 
+class LinkedInPostsResponse(BaseModel):
+    posts: list[StoredPost]
+
+
+class DraftRequest(BaseModel):
+    post_id: str
+    kind: Literal["comment", "dm", "both"] = "both"
+    note: str | None = None  # what the student wants to say, e.g. "mention my hackathon"
+
+
+class CardDraftRequest(BaseModel):
+    post_id: str | None = None   # empty: the post on screen now
+    person: str | None = None    # or the author's name ("Marcus")
+    kind: Literal["comment", "dm", "both"] = "both"
+    note: str | None = None
+
+
+class ResearchRequest(BaseModel):
+    company: str | None = None   # empty: the company of `person` / the post on screen
+    person: str | None = None
+
+
+class ActivityResponse(BaseModel):
+    activity: list[ActivityEvent]
+    on_screen: list[str]
+
+
+class CardsResponse(BaseModel):
+    cards: list[NovaCard]
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
 
@@ -80,6 +128,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 timeout=settings.gemini_timeout_seconds)
                if settings.llm_active else None)
         app.state.service = BrowserAgentService(settings, backend, cache, llm)
+        app.state.linkedin = LinkedInService(
+            LinkedInStore(settings.linkedin_path, settings.linkedin_max_posts),
+            LinkedInDrafter(settings.gemini_api_key,
+                            [settings.gemini_model, *settings.gemini_fallback_models],
+                            settings.linkedin_user_blurb, settings.gemini_timeout_seconds),
+            LinkedInResearcher(settings.tinyfish_api_key, settings.gemini_api_key,
+                               [settings.gemini_model, *settings.gemini_fallback_models],
+                               settings.linkedin_user_blurb, HUMAN_STYLE,
+                               settings.gemini_timeout_seconds))
         async with mcp.session_manager.run():
             yield
         await backend.close()
@@ -93,7 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     protected = [Depends(require_key)]
 
     # MCP at /mcp: a second face over the same service (tools resolve it lazily)
-    mcp = build_mcp(lambda: app.state.service)
+    mcp = build_mcp(lambda: app.state.service, lambda: app.state.linkedin)
     mcp.streamable_http_app()  # creates mcp.session_manager
     app.router.routes.append(Route(
         "/mcp", KeyGuard(StreamableHTTPASGIApp(mcp.session_manager), settings.canvas_api_key),
@@ -127,6 +184,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def material_no_text(_req: Request, exc: MaterialTextUnavailable):
         return JSONResponse(status_code=422,
                             content={"error": "material_text_unavailable", "detail": str(exc)})
+
+    @app.exception_handler(PostNotFound)
+    async def post_not_found(_req: Request, exc: PostNotFound):
+        return JSONResponse(status_code=404, content={
+            "error": "post_not_found",
+            "detail": f"No LinkedIn post {exc} in this session (scroll past it first)"})
 
     async def snapshot_or_502(request: Request) -> Snapshot:
         try:
@@ -236,6 +299,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"Could not read material: {exc}") from exc
+
+    # ---------- LinkedIn co-pilot (drafts only; never posts) ----------
+
+    def li(request: Request) -> LinkedInService:
+        return request.app.state.linkedin
+
+    @app.post("/linkedin/observe", response_model=ObserveResult, dependencies=protected,
+              tags=["linkedin"])
+    async def linkedin_observe(request: Request, body: ObserveRequest):
+        """Called by the Chrome extension while the student scrolls: posts already on
+        screen + engagement (liked / expanded / commented / dwell seconds)."""
+        return li(request).store.observe(body)
+
+    @app.get("/linkedin/posts", response_model=LinkedInPostsResponse, dependencies=protected,
+             tags=["linkedin"])
+    async def linkedin_posts(request: Request, limit: int = Query(20, ge=1, le=200),
+                             engaged_only: bool = False):
+        """Posts seen this session, most recent first."""
+        return LinkedInPostsResponse(posts=li(request).store.recent(limit, engaged_only))
+
+    @app.get("/linkedin/summary", response_model=LinkedInSummary, dependencies=protected,
+             tags=["linkedin"])
+    async def linkedin_summary(request: Request, max_people: int = Query(10, ge=1, le=50)):
+        """What the student engaged with: interests, people worth contacting, companies."""
+        return li(request).store.summary(max_people)
+
+    @app.post("/linkedin/draft", response_model=Drafts, dependencies=protected,
+              tags=["linkedin"])
+    async def linkedin_draft(request: Request, body: DraftRequest):
+        """Draft comment options + connection note + DM for one seen post. The student
+        copies and sends them; this never posts. source=template when Gemini is off."""
+        return await li(request).draft(body.post_id, body.kind, body.note)
+
+    @app.exception_handler(NothingToDraft)
+    async def nothing_to_draft(_req: Request, exc: NothingToDraft):
+        return JSONResponse(status_code=404, content={"error": "nothing_to_draft",
+                                                      "detail": str(exc)})
+
+    @app.get("/linkedin/activity", response_model=ActivityResponse, dependencies=protected,
+             tags=["linkedin"])
+    async def linkedin_activity(request: Request, limit: int = Query(20, ge=1, le=100)):
+        """What the student did while scrolling, newest first (liked, read, expanded...)."""
+        st = li(request).store
+        return ActivityResponse(activity=st.recent_activity(limit), on_screen=st.on_screen)
+
+    @app.get("/linkedin/cards", response_model=CardsResponse, dependencies=protected,
+             tags=["linkedin"])
+    async def linkedin_cards(request: Request, limit: int = Query(10, ge=1, le=30)):
+        """Drafts and research Nova made (by voice or panel), newest first. The panel
+        polls this and pops the newest card up."""
+        return CardsResponse(cards=li(request).recent_cards(limit))
+
+    @app.post("/linkedin/cards/draft", response_model=NovaCard, dependencies=protected,
+              tags=["linkedin"])
+    async def linkedin_card_draft(request: Request, body: CardDraftRequest):
+        """Draft for a post (by id, by author name, or the one on screen) as a Nova card."""
+        return await li(request).draft_card(body.post_id, body.person, body.kind, body.note)
+
+    @app.post("/linkedin/research", response_model=NovaCard, status_code=202,
+              dependencies=protected, tags=["linkedin"])
+    async def linkedin_research(request: Request, body: ResearchRequest):
+        """Start company + CEO research in the background. Returns the card at once
+        (status=working); poll /linkedin/cards until it is done (~10-30 s)."""
+        return li(request).start_research(body.company, body.person)
+
+    @app.delete("/linkedin/session", response_model=ObserveResult, dependencies=protected,
+                tags=["linkedin"])
+    async def linkedin_clear(request: Request):
+        """Forget this scroll session."""
+        li(request).store.clear()
+        return ObserveResult(new_posts=0, updated_posts=0, engagements_recorded=0, total_posts=0)
 
     return app
 

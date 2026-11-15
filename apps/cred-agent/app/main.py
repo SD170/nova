@@ -56,7 +56,10 @@ def _load_env_file(p: pathlib.Path) -> None:
         k, v = line.split("=", 1)
         v = v.strip().strip('"').strip("'").split("#", 1)[0].strip()
         k = k.strip()
-        if k and k not in os.environ:
+        # Only set if the key is TRULY unset (not just blank).
+        # Letting a blank .env line override a non-blank shared.env is the
+        # footgun this guard fixes.
+        if k and v and not os.environ.get(k, "").strip():
             os.environ[k] = v
 
 

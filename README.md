@@ -1,7 +1,7 @@
 
 <div align="center">
 
-# 🎙️ STUDENT JARVIS  
+# 🎙️ NOVA 
 
 ## Your Student Life. One Intelligent Assistant.
 

@@ -14,6 +14,7 @@ hermes-home/*/skins/
 hermes-home/*/bin/
 hermes-home/*/auth.lock
 hermes-home/*/auth.json
+hermes-home/*/.mcp-discovery.lock
 hermes-home/*/.env
 hermes-home/*/.no-bundled-skills
 hermes-home/*/.skills_prompt_snapshot.json

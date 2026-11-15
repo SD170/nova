@@ -72,7 +72,7 @@ MAX_HERMES_SECONDS = int(os.environ.get("MAX_HERMES_SECONDS", "45"))
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(name)s | %(message)s",
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("vapi-bridge")
@@ -195,23 +195,26 @@ async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str
     ]
     if resume_session:
         args += ["-r", resume_session]
-    log.info("hermes invoke resume=%s prompt=%r", resume_session or "(new)", prompt[:120])
-    t0 = time.time()
+    log.info("[t-hermes] launch resume=%s prompt=%r", resume_session or "(new)", prompt[:80])
+    t_launch = time.time()
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
+    log.info("[t-hermes] spawned pid=%s in %.3fs", proc.pid, time.time() - t_launch)
     try:
+        t_wait = time.time()
         stdout_b, stderr_b = await asyncio.wait_for(
             proc.communicate(), timeout=MAX_HERMES_SECONDS
         )
+        log.info("[t-hermes] exit pid=%s subprocess_time=%.3fs", proc.pid, time.time() - t_wait)
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
         raise HTTPException(status_code=504, detail=f"hermes turn exceeded {MAX_HERMES_SECONDS}s")
-    dt = time.time() - t0
+    dt = time.time() - t_launch
 
     out = (stdout_b or b"").decode("utf-8", errors="replace").strip()
     err = (stderr_b or b"").decode("utf-8", errors="replace").strip()
@@ -245,7 +248,7 @@ async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str
     else:
         reply = out
 
-    log.info("hermes reply len=%d took=%.2fs", len(reply), dt)
+    log.info("[t-hermes] total=%.3fs reply_len=%d", dt, len(reply))
     return reply, session_id
 
 
@@ -299,7 +302,10 @@ async def chat_completions_alias(request: Request):
 
 
 async def _chat(request: Request):
+    t_ingress = time.time()
+    turn_id = uuid.uuid4().hex[:6]
     body = await request.json()
+    t_parsed = time.time()
     try:
         _ = ChatRequest.model_validate(body)   # shape sanity
     except Exception as exc:
@@ -311,26 +317,36 @@ async def _chat(request: Request):
     if not user_text:
         raise HTTPException(status_code=400, detail="no user message")
 
+    log.info("[t-turn %s] ingress call=%s persona=%s text=%r body_parse=%.3fs",
+             turn_id, call_id[:8], persona, user_text[:60], t_parsed - t_ingress)
+
     session = _sessions_by_call.get(call_id)
     prompted = f"[persona: {persona}]\n{user_text}"
 
+    t_prehermes = time.time()
     reply, new_session = await _run_hermes(prompted, resume_session=session)
+    t_posthermes = time.time()
     if new_session and call_id:
         _sessions_by_call[call_id] = new_session
     if not reply:
         reply = "Sorry, I didn't catch that. Could you say it again?"
 
+    log.info("[t-turn %s] hermes_leg=%.3fs reply_len=%d",
+             turn_id, t_posthermes - t_prehermes, len(reply))
+
     model = body.get("model") or "hermes-shruti"
     stream = bool(body.get("stream", False))
 
     if stream:
-        return StreamingResponse(
+        resp = StreamingResponse(
             _stream_response(reply, model),
             media_type="text/event-stream",
             headers={"cache-control": "no-cache"},
         )
+        log.info("[t-turn %s] total_bridge=%.3fs → stream SSE", turn_id, time.time() - t_ingress)
+        return resp
 
-    return JSONResponse({
+    resp = JSONResponse({
         "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
         "object": "chat.completion",
         "created": int(time.time()),
@@ -342,6 +358,8 @@ async def _chat(request: Request):
         }],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
     })
+    log.info("[t-turn %s] total_bridge=%.3fs → JSON", turn_id, time.time() - t_ingress)
+    return resp
 
 
 # Vapi "server url" catch-all — tool calls, status, end-of-call reports.

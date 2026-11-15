@@ -32,7 +32,7 @@ if not VAPI_KEY:
 
 VAPI_BASE = "https://api.vapi.ai"
 HEADERS = {"Authorization": f"Bearer {VAPI_KEY}", "Content-Type": "application/json"}
-ASSISTANT_NAME = "Student Jarvis"
+ASSISTANT_NAME = "Shruti"
 
 
 def tool_spec(webhook_url: str) -> list[dict]:
@@ -90,16 +90,26 @@ def tool_spec(webhook_url: str) -> list[dict]:
                 "course_id": {"type": "string"},
             },
             "required": ["start", "end", "title"]}),
+        fn("set_name",
+           "Change the assistant's own name. Call this when the student says 'call yourself X' or 'your name is now X'.",
+           {"type": "object",
+            "properties": {"name": {"type": "string", "description": "The new name, e.g. 'Max'"}},
+            "required": ["name"]}),
     ]
 
 
-SYSTEM_PROMPT = """You are Student Jarvis — a voice-first assistant for a university student.
+SYSTEM_PROMPT = """You are Shruti — a voice-first assistant for a university student.
+
+The student may give you a different name at any time. If they say something
+like "call yourself Max" or "your name is now Priya", call the set_name tool
+and start responding to that name immediately.
 
 You help with academic work: checking Canvas for assignments and course materials,
 quizzing the student on upcoming exams using their real course content, and
 scheduling revision blocks on their calendar.
 
 Rules:
+- Do not greet with "Jarvis" or any pop-culture AI name. Use your current name.
 - Speak conversationally, one sentence at a time. Students are often walking.
 - Prefer calling tools over guessing. If you do not know, call a tool.
 - When you need to write to an external service (create_study_block, send emails),
@@ -114,7 +124,7 @@ Rules:
 def assistant_body(webhook_url: str) -> dict:
     return {
         "name": ASSISTANT_NAME,
-        "firstMessage": "Hey, Jarvis here. What do you need?",
+        "firstMessage": "Hey, I'm Shruti. What do you need?",
         "voice": {"provider": "vapi", "voiceId": "Elliot"},
         "model": {
             "provider": "openai",

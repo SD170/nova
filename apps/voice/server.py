@@ -9,14 +9,37 @@ Run:  uv run --python 3.11 --with fastapi --with uvicorn python server.py
 from __future__ import annotations
 
 import json
+import os
 import sys
-import time
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+HERE = Path(__file__).parent
+
+
+# Load local .env (secrets) and ../../shared.env (non-secrets) so /config can expose them.
+def _load_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        v = v.strip().strip('"').strip("'")
+        os.environ.setdefault(k.strip(), v)
+
+
+_load_env(HERE / ".env")
+_load_env(HERE.parent.parent / "shared.env")
+
 
 app = FastAPI(title="Student Jarvis voice webhook")
+app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
 
 
 # ───────────────────────── logging ─────────────────────────
@@ -117,6 +140,15 @@ def _tool_create_study_block(args: dict) -> dict:
     }
 
 
+def _tool_set_name(args: dict) -> dict:
+    name = (args.get("name") or "").strip()
+    if not name:
+        return {"ok": False, "error": "name is required"}
+    # Persist to a side-file so the next cold-start remembers. Lightweight.
+    (HERE / ".assistant_name").write_text(name)
+    return {"ok": True, "name": name, "message": f"Okay, I'll go by {name} from now on."}
+
+
 TOOLS = {
     "get_courses": _tool_get_courses,
     "get_assignments": _tool_get_assignments,
@@ -124,6 +156,7 @@ TOOLS = {
     "generate_exam_quiz": _tool_generate_exam_quiz,
     "get_calendar_events": _tool_get_calendar_events,
     "create_study_block": _tool_create_study_block,
+    "set_name": _tool_set_name,
 }
 
 
@@ -132,6 +165,23 @@ TOOLS = {
 @app.get("/health")
 async def health():
     return {"ok": True, "ts": ts()}
+
+
+@app.get("/")
+async def index():
+    return FileResponse(HERE / "static" / "index.html")
+
+
+@app.get("/config")
+async def config():
+    """Non-secret config the browser needs to start a Vapi web call.
+    Public key is safe to expose; private key stays server-side only.
+    """
+    return {
+        "publicKey": os.environ.get("VAPI_PUBLIC_KEY", ""),
+        "assistantId": os.environ.get("VAPI_ASSISTANT_ID", ""),
+        "dashboardUrl": os.environ.get("VAPI_DASHBOARD_URL", ""),
+    }
 
 
 @app.post("/vapi")

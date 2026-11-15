@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Voice assistant</title>
+<style>
+  :root {
+    --bg: #0b0b10;
+    --panel: #15151e;
+    --ink: #e6e6ee;
+    --mute: #8a8aa0;
+    --accent: #7c5cff;
+    --accent-2: #00d4a7;
+    --danger: #ff5c7a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+    color: var(--ink);
+    background: radial-gradient(1200px 800px at 20% 10%, #1b1538 0%, var(--bg) 60%);
+    display: grid; place-items: center;
+  }
+  main {
+    width: min(720px, 92vw);
+    display: grid; gap: 20px;
+  }
+  header { text-align: center; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: 0.3px; }
+  .sub { color: var(--mute); font-size: 13px; margin-top: 4px; }
+
+  .orb-wrap { display: grid; place-items: center; padding: 24px 0 8px; }
+  .orb {
+    width: 180px; height: 180px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #a08dff, #7c5cff 50%, #2a1b6e 100%);
+    box-shadow: 0 0 60px rgba(124,92,255,0.45), inset 0 0 40px rgba(255,255,255,0.08);
+    transition: transform .15s ease-out, box-shadow .2s;
+  }
+  .orb.listening { animation: pulse 1.4s ease-in-out infinite; }
+  .orb.speaking  { background: radial-gradient(circle at 35% 30%, #a2ffe5, #00d4a7 55%, #004a3a 100%);
+                    box-shadow: 0 0 80px rgba(0,212,167,0.55), inset 0 0 50px rgba(255,255,255,0.1); }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); box-shadow: 0 0 90px rgba(124,92,255,0.7); } }
+
+  .controls { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  button {
+    appearance: none; border: 0; cursor: pointer;
+    padding: 10px 18px; border-radius: 999px;
+    background: var(--panel); color: var(--ink);
+    font: inherit; font-weight: 600;
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: transform .08s, background .15s, border-color .15s;
+  }
+  button:hover { transform: translateY(-1px); border-color: rgba(255,255,255,0.18); }
+  button.primary { background: linear-gradient(135deg, #7c5cff 0%, #5436ff 100%); border-color: transparent; }
+  button.danger  { background: linear-gradient(135deg, #ff5c7a 0%, #c02e4e 100%); border-color: transparent; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+  .status {
+    text-align: center; color: var(--mute); font-size: 13px;
+    min-height: 1.3em;
+  }
+  .status.err { color: var(--danger); }
+  .status.ok  { color: var(--accent-2); }
+
+  .log {
+    background: var(--panel);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    padding: 14px 16px;
+    max-height: 42vh; overflow-y: auto;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12.5px;
+  }
+  .row { margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+  .row.user       { color: #d8c7ff; }
+  .row.assistant  { color: #9effe0; }
+  .row.tool       { color: #ffd87a; }
+  .row.system     { color: var(--mute); font-size: 11.5px; }
+  .tag { opacity: 0.7; margin-right: 6px; }
+
+  footer { color: var(--mute); font-size: 11.5px; text-align: center; }
+  a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Voice assistant</h1>
+    <div class="sub">push the button → talk → the orb goes green when it talks back</div>
+  </header>
+
+  <div class="orb-wrap">
+    <div id="orb" class="orb"></div>
+  </div>
+
+  <div class="controls">
+    <button id="startBtn" class="primary">Start talking</button>
+    <button id="stopBtn" class="danger" disabled>End call</button>
+    <button id="muteBtn" disabled>Mute mic</button>
+  </div>
+
+  <div id="status" class="status">idle</div>
+
+  <div id="log" class="log" aria-live="polite">
+    <div class="row system"><span class="tag">[sys]</span>waiting for mic + Vapi…</div>
+  </div>
+
+  <footer>
+    tool-call logs stream in the backend terminal · dashboard:
+    <a target="_blank" id="dash" href="#">open in Vapi</a>
+  </footer>
+</main>
+
+<script type="module">
+  import Vapi from "https://esm.sh/@vapi-ai/web@2.3.1";
+
+  // Config comes from the server at /config so we never embed keys here.
+  const cfg = await fetch("/config").then(r => r.json()).catch(() => ({}));
+  if (!cfg.publicKey || !cfg.assistantId) {
+    setStatus("missing /config — is the webhook server running?", "err");
+  } else {
+    document.getElementById("dash").href = cfg.dashboardUrl || "#";
+  }
+
+  const vapi = new Vapi(cfg.publicKey);
+
+  const orb     = document.getElementById("orb");
+  const startBtn= document.getElementById("startBtn");
+  const stopBtn = document.getElementById("stopBtn");
+  const muteBtn = document.getElementById("muteBtn");
+  const logEl   = document.getElementById("log");
+  const statusEl= document.getElementById("status");
+
+  let callActive = false;
+  let muted = false;
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text;
+    statusEl.className = "status" + (kind ? " " + kind : "");
+  }
+
+  function log(role, text) {
+    const row = document.createElement("div");
+    row.className = "row " + role;
+    row.innerHTML = `<span class="tag">[${role}]</span>${escapeHtml(text)}`;
+    logEl.appendChild(row);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  startBtn.onclick = async () => {
+    if (!cfg.publicKey || !cfg.assistantId) return;
+    try {
+      setStatus("connecting…");
+      await vapi.start(cfg.assistantId);
+    } catch (e) {
+      setStatus("failed to start: " + e.message, "err");
+    }
+  };
+
+  stopBtn.onclick = () => vapi.stop();
+
+  muteBtn.onclick = () => {
+    muted = !muted;
+    vapi.setMuted(muted);
+    muteBtn.textContent = muted ? "Unmute mic" : "Mute mic";
+  };
+
+  vapi.on("call-start", () => {
+    callActive = true;
+    orb.classList.add("listening");
+    startBtn.disabled = true;
+    stopBtn.disabled = false;
+    muteBtn.disabled = false;
+    setStatus("listening — speak up", "ok");
+    log("system", "call started");
+  });
+
+  vapi.on("call-end", () => {
+    callActive = false;
+    orb.classList.remove("listening", "speaking");
+    startBtn.disabled = false;
+    stopBtn.disabled = true;
+    muteBtn.disabled = true;
+    setStatus("call ended", "");
+    log("system", "call ended");
+  });
+
+  vapi.on("speech-start", () => { orb.classList.remove("listening"); orb.classList.add("speaking"); });
+  vapi.on("speech-end",   () => { orb.classList.remove("speaking"); if (callActive) orb.classList.add("listening"); });
+
+  vapi.on("volume-level", (v) => {
+    // v is 0..1
+    const scale = 1 + v * 0.18;
+    orb.style.transform = `scale(${scale.toFixed(3)})`;
+  });
+
+  vapi.on("message", (m) => {
+    if (m.type === "transcript" && m.transcriptType === "final") {
+      log(m.role === "user" ? "user" : "assistant", m.transcript);
+    } else if (m.type === "function-call" || m.type === "tool-calls") {
+      const list = m.functionCall ? [m.functionCall] : (m.toolCalls || m.toolCallList || []);
+      for (const t of list) {
+        const name = t.name || (t.function && t.function.name);
+        const args = t.parameters || t.arguments || (t.function && t.function.arguments);
+        log("tool", `${name}(${typeof args === "string" ? args : JSON.stringify(args)})`);
+      }
+    }
+  });
+
+  vapi.on("error", (e) => {
+    setStatus("error: " + (e.errorMsg || e.message || "unknown"), "err");
+    log("system", "error: " + JSON.stringify(e).slice(0, 200));
+  });
+
+  setStatus("ready — click 'Start talking'", "");
+  log("system", "ready");
+</script>
+</body>
+</html>

@@ -183,12 +183,15 @@ Keep VoiceStudio in the pitch as the "and here's the local / private deployment 
 
 ## Secrets convention (team rule — follow this for every app)
 
-Every third-party API key / token / credential MUST have a corresponding entry in a `.env.example` file:
+Three config tiers:
 
-- **Service-local secrets** (used only by one app) → `apps/<app>/.env.example` + `apps/<app>/.env` (gitignored)
-- **Cross-app secrets** (shared) → repo-root `.env.example` + repo-root `.env` (gitignored)
+| File | Committed? | What goes in |
+|---|---|---|
+| `shared.env` (repo root) | **yes** | Non-secret shared values every service needs: assistant IDs, public URLs, port numbers. One source of truth — update here, teammates `git pull` + autosync picks it up. |
+| `apps/<app>/.env.example` | **yes** | Template of env vars that service needs, with empty values + a comment pointing to where the real value is obtained. |
+| `apps/<app>/.env` | **no** (gitignored) | Actual API keys, tokens, OAuth creds. Each teammate fills their own. Never commit. |
 
-`.env.example` is committed with **empty values and a comment** pointing to where the key is obtained. Real `.env` files are never committed — the root `.gitignore` already excludes them.
+`.env.example` is committed so teammates know what to put in `.env`. Real `.env` files are excluded by root `.gitignore`.
 
 Example for `apps/voice/.env.example`:
 ```
@@ -197,7 +200,9 @@ VAPI_PRIVATE_KEY=
 VAPI_PUBLIC_KEY=
 ```
 
-Rule for every PR: if you added a new env var, you updated `.env.example` in the same commit.
+Services read `shared.env` for the public-ish values (assistant IDs, tunnel URL, ports) and their local `.env` for secrets.
+
+Rule for every PR: if you added a new env var, you updated `.env.example` (and `shared.env` if it's non-secret and shared) in the same commit.
 
 ## Repo folder layout (per-chunk, each person owns a folder)
 
@@ -247,9 +252,240 @@ Shared JSON contracts (tool call shapes, /chat shape, card types) live in `conte
 
 ## My ideas / open questions
 
-- 
+### Daily Pulse — the "what I need to know when I wake up" brief
 
-## Decisions I'm making
+Student wakes up → single brief. Not a feed, not a dashboard. **One curated page** that answers: "what's on fire today, what should I actually work on, and what's about to hit my bank account."
+
+#### Four lanes feeding one brief
+
+```
+                       ┌─────────────────────┐
+  Canvas (browser) ───▶│                     │
+  Gmail (read-only) ──▶│                     │
+  Calendar ───────────▶│   Daily Pulse       │──▶  one page
+  Interest feeds ─────▶│   synthesizer       │     (voice + web card)
+  Bank (Plaid, P2) ───▶│                     │
+                       └─────────────────────┘
+                                 ▲
+                                 │
+                       supermemory — knows what
+                       you cared about yesterday,
+                       what's stale, what changed
+```
+
+#### Lane 1: academic (what I should work on today)
+- Canvas: upcoming assignments, due dates, points weight, past grade on similar
+- Supermemory signal: weak topics from past quizzes
+- Priority algorithm: `urgency × weight × weakness_delta`
+- Output: "work on HW3 Q4-6 (phase shifts, you missed these on HW3 Q2)"
+
+#### Lane 2: interests (what I care about outside school)
+- No Twitter API — fine. Alternatives:
+  - **RSS feeds from the sites behind the tweets**: Nitter instances (unreliable), or go direct (TechCrunch, Hacker News, The Athletic for football, MAL/AniList for anime)
+  - **Google News RSS** per topic (legit, no auth): `https://news.google.com/rss/search?q=<topic>`
+  - **Reddit** per subreddit (free public JSON): `reddit.com/r/MachineLearning/.json`, `/r/soccer/.json`, `/r/anime/.json`
+  - **Hacker News API** for AI/tech (free, official)
+  - **YouTube RSS** per channel
+  - **LessWrong / arxiv-sanity** for AI
+- Supermemory learns which items I clicked / skipped → tunes next day's filter
+- Output: 3-5 items max, in my voice ("The paper you were reading last week got cited in X.")
+
+#### Lane 3: money (the one that keeps me up)
+- **For the demo (and honestly the real pain):** use **Gmail read-only** as the money signal. Bank + ASU already send you everything:
+  - ASU financial aid disbursement emails
+  - Tuition / rent due reminders
+  - Bank "you spent X" alerts (Chase, Discover, etc.)
+  - CPT paycheck confirmations (Vapi Inc for you)
+  - Visa / insurance renewal reminders
+- Agent scans the inbox daily via Gmail API (OAuth read-only scope), extracts money events, flags "rent due in 5 days, balance low based on last Chase alert."
+- **Plaid** is available later (free dev tier, 100+ US banks, read-only transaction sync) if we want real balances post-hackathon. Not in demo scope.
+- Output: "Heads up: tuition payment plan second installment hits Dec 3rd ($2,850). You have 2 Vapi paychecks before then — you're fine."
+
+#### Lane 4: logistics (the glue)
+- Calendar: today's blocks, free slots
+- Reminders: anything on your Apple Reminders / Google Tasks list
+- Weather / commute (nice-to-have)
+
+#### Why this is right for us
+
+**Hits sponsor stack 5+ ways:**
+- supermemory — the *whole point* is persistent context across days, filtering by what you care about
+- TinyFish — Canvas scrape + any site that resists RSS
+- Gemini — long-context synthesis of a day's worth of signals into one voice reply
+- MongoDB Atlas — vector memory over your interest profile
+- Maritime — the agent runs *overnight* on their VM, prepares the brief before you wake up
+- JFF — future-of-work is literally "AI prepares your morning so you start sharp"
+
+**Judging criteria it wins on:**
+- Originality: student-specific, money + academics + interests fused. None of the agent-hackathon winners did this.
+- Complexity: four heterogeneous data sources + synthesis + voice + memory layer
+- Functionality: demoable with a single "good morning" voice prompt
+- Design: one beautiful page = visual judge candy
+
+#### Pitfall discipline (what we're NOT building)
+
+- Not a news aggregator. No infinite scroll. 5 items max per category, curated.
+- Not a budget app. No charts, no categorization UI. Just inbox-mining + "heads up about X."
+- Not a to-do list. We surface Canvas + email tasks; we don't ask the student to add items.
+- Not realtime. Briefs are generated once overnight (supermemory + Maritime), updated on demand when they ask.
+
+#### Data sources ranked by hackathon-feasibility
+
+| Source | Access | Cost | Fit |
+|---|---|---|---|
+| Canvas (browser scrape) | ✅ Abishek is on this | $0 | P0 |
+| Gmail (OAuth read-only) | Google APIs, 5-min setup | $0 | P0 for money + ASU emails |
+| Reddit JSON | Public, no auth | $0 | P1 |
+| Google News RSS | Public, no auth | $0 | P1 |
+| Hacker News API | Public, official | $0 | P1 |
+| YouTube RSS per channel | Public, no auth | $0 | P1 |
+| Google Calendar | OAuth, same Google flow as Gmail | $0 | P1 |
+| arXiv / HN cross-ref | APIs free | $0 | P2 |
+| Plaid (real bank) | Free dev tier, 2-day setup | $0 | **P2 — for post-hackathon pitch only** |
+| Apple Reminders | osascript bridge local | $0 | P2 |
+
+#### The demo moment
+
+Judge hits a button. Voice:
+> *"Good morning. You've got CSE 310 at 1:30, and HW3 is due tonight — you nailed convolution in HW4 so I lined up the 4 problems on phase shifts, that's where you dropped points last time. Nothing urgent in Gmail, but ASU's second tuition installment hits Dec 3rd, $2,850 — you have two Vapi paychecks before then, you're clear. In your world: that DeepSeek paper you starred Tuesday has a follow-up on the front page of HN right now, and Arsenal pulled off a 3-2 from behind against City last night. Want me to pin the HN thread?"*
+
+That's the demo. One prompt, one reply, every lane shows up, memory visible everywhere.
+
+### Open questions
+
+- Who owns Gmail integration? Not Abishek (he's on Canvas-via-browser). Maybe Amrita if her LinkedIn stuff lands early.
+- Push Plaid to post-hackathon or build a 10-min mock bank-balance tile for the demo?
+- How does "one page" render — in Shruti's web UI as a card, or do we spin a dedicated `/morning` route?
+
+### Decisions I'm making
+
+### System design — LOCKED (Nov 14, late)
+
+**One brain, many eyes.** Hermes is the brain. Vapi is ears + mouth. Sub-agents are dumb HTTP services. supermemory holds the user state, and only the brain writes to it.
+
+```
+┌──────────────── live voice path (latency-critical) ─────────────────┐
+│                                                                     │
+│   Vapi (STT + TTS)                                                  │
+│       ↕ OpenAI /v1/chat/completions                                 │
+│   Orchestrator wrapper (~100 LOC FastAPI, apps/orchestrator/)       │
+│       ↕ translates to Hermes session                                │
+│   Hermes "shruti" profile (THE BRAIN)                               │
+│       ├─ system prompt (identity + rules + memory policy, static)   │
+│       ├─ tool registry (dynamic, see catalogs below):               │
+│       │    canvas_*       → HTTP :9001 (Abishek)                    │
+│       │    materials_*    → HTTP :9003 (Amrita retrieval+quiz)      │
+│       │    news_*         → HTTP :9004 (Amrita interests)           │
+│       │    gmail_*        → HTTP :9005 (money + ASU emails, later)  │
+│       │    calendar_*     → HTTP :9006 (free/busy + blocks, later)  │
+│       │    hermes-native: memory, delegate_task, cron, terminal     │
+│       └─ supermemory MCP (sole writer of user state)                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌──────────────── background (latency relaxed) ──────────────────────┐
+│                                                                     │
+│   Hermes cron (Daily Pulse @ 6am) — same brain, longer budget       │
+│   Hermes delegate_task — fork sub-agents for heavy parallel work    │
+│   Discord/Slack bot surface — same brain again                      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Why this shape:**
+- Hermes is the brain, not a router. It reasons, delegates, approves, remembers.
+- Sub-agents stay stateless. Fresh data every call. Fault-isolated. Teammates own one folder each.
+- supermemory is the only state. One writer (brain), avoids cross-service race conditions.
+- Same brain powers live voice AND the 6am cron brief. Consistent reasoning.
+
+### supermemory rules — LOCKED
+
+1. **Only the orchestrator (Hermes brain) writes to supermemory.** No sub-agent writes.
+2. **Sub-agents are stateless.** Every HTTP call returns fresh data from its source. In-service caching is allowed (Abishek's snapshot cache is CACHE, not memory).
+3. **The brain reads supermemory at the top of every turn** (via Hermes memory + supermemory MCP) and uses it to decide what to ask sub-agents.
+4. **The brain writes supermemory at the end of a turn** when something changed: new weak topic, new star/skip, intent shift, cross-session fact, user override of a classifier.
+5. **Shared spaces are a brain operation.** Sharing an item ("share this news with Priya") = brain creates a shared supermemory entry both users read. The share tool does not copy data between accounts; it authorizes a slice.
+6. **Classifier opinions ≠ user memory.** Abishek's Gemini says "this is an exam with confidence 0.82" — that lives in the item payload, not supermemory. Supermemory gets facts about the *student*, not facts about the *data*.
+
+### Communication style — LOCKED (updated)
+
+- **MCP (streamable-HTTP) for sub-agents, when they ship it.** Native Hermes MCP client auto-discovers tools (`mcp_canvas_*`, etc.). No hand-rolled custom-tools block in the Shruti profile.
+- **HTTP fallback allowed during transition.** Abishek's service shipped REST first; MCP is TODO 6. Until MCP lands, Hermes talks to the REST endpoints via a custom-tools block.
+- Decision reversal from earlier draft: cleaner Hermes config + standard discovery wins over the "HTTP-only, no protocol overhead" instinct. Same latency either way.
+- **Hermes tool registry still maps semantic names → service tools.** LLM picks tools by intent, Hermes dispatches (via MCP or custom-HTTP as appropriate).
+- **One intent = one tool call.** The brain never composes a tool call out of browser primitives. If a common prompt needs two sub-agents, add a bundled endpoint on the sub-agent side (see `/brief` for Abishek).
+
+### Canvas tool catalog — the brain's view of Abishek's service (9 tools)
+
+```
+# Tier 1 — hot path (brain picks these 90% of the time)
+get_todo_list(days=7)                   → GET /items/next?days=7
+get_daily_brief(days=7)                 → GET /brief?days=7       (NEW — ask Abishek)
+
+# Tier 2 — drill-down
+get_item_details(item_id)               → GET /items/{id}         (NEW — ask Abishek)
+get_course_items(course_id, include_done=True)  → GET /items?course_id=X
+list_courses()                          → GET /courses
+
+# Tier 3 — materials (for Amrita)
+get_course_materials(course_id, topic_hint?)    → GET /materials?course_id=X
+                                                  (currently stub, needs priority)
+
+# Tier 4 — slow / rarely called
+sync_canvas()                           → POST /sync              (10-35s; brain warns user first)
+get_canvas_health()                     → GET /health
+
+# Tier 5 — student override
+mark_item_done_locally(item_id)         → POST /items/{id}/user-done  (NEW — ask Abishek)
+                                           ALSO writes a fact to supermemory
+```
+
+System-prompt policy (what the brain is told about these):
+```
+For "what's due", "work on"               → get_todo_list
+For "morning brief", status               → get_daily_brief
+For "tell me about X"                     → get_item_details
+For "how am I doing in COURSE"            → get_course_items
+For "what classes"                        → list_courses
+For "show me slides/materials"            → get_course_materials
+For "refresh Canvas now" (explicit)       → sync_canvas (warn user, 20s)
+For student override ("I did HW3")        → mark_item_done_locally, then confirm verbally
+Default: prefer cached tools. Never call sync_canvas mid-conversation.
+```
+
+### News / sharing — where curation lives
+
+**Curation happens in the brain, not in the news service.** Rationale:
+- Personalization needs memory (what you starred, skipped, spent time on). Memory lives at the brain.
+- Cross-lane synthesis is brain-only ("the DeepSeek paper you starred Tuesday has a follow-up on HN right now" fuses news + supermemory stars — only the brain can do that).
+- Sharing is a brain action: `share_item(item_id, recipient)` creates a shared supermemory space. News service never writes.
+
+Amrita's news service exposes just three endpoints (data layer only):
+```
+GET  /news/candidates?topics=ai,soccer,anime&since=24h   → raw pool, 50-200 items
+GET  /news/item/{id}                                      → full extracted text
+POST /news/dedupe  body:[items]                           → cluster near-duplicates
+```
+
+The brain then: pulls `supermemory.get_user_interests()` + `get_recent_stars()` + `get_recent_skips()`, hits `/news/candidates`, ranks with a small LLM call against user context, picks 5, writes "served item X" back to supermemory so tomorrow doesn't repeat.
+
+### Build order (next 90 min)
+
+1. `~/.hermes/profiles/shruti/` — pinned model (Gemini 2.5 Flash), approval=manual, minimal skills, supermemory MCP
+2. `shruti` system prompt — identity + rules + tool-policy lines (NO inline tool specs; those auto-inject from registry)
+3. Register HTTP tools pointing at `localhost:9001/*` in the Shruti Hermes config
+4. `apps/orchestrator/main.py` — ~100 LOC FastAPI exposing `/v1/chat/completions`, streaming SSE
+5. Flip Vapi's custom LLM URL from `apps/voice/` to `apps/orchestrator/`
+6. Keep `apps/voice/` as fallback for 1 hour until orchestrator is proven green
+7. First end-to-end test: voice "what's due this week" → Hermes → Abishek's cached snapshot → Vapi speaks real ASU Canvas data
+
+### Blockers / open questions
+
+- Need Abishek's three new endpoints (`/brief`, `/items/{id}`, `/items/{id}/user-done`) and materials pipeline unblocked
+- Supermemory MCP server details (hosted URL or local npx?) — ask sponsor at venue
+- Whether the orchestrator exposes a second SSE route for the web UI, or only Vapi — defer until we know if we need live token streaming in the browser
+
+## Decisions I'm making — session log
 
 - 
 

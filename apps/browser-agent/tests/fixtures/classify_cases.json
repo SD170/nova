@@ -1,0 +1,18 @@
+[
+  {"name": "plain homework", "raw": {"source_kind": "assignment_list", "title": "Homework 3: AVL Trees", "points": 50}, "expect_type": "assignment", "expect_by": "rule"},
+  {"name": "final project is NOT an exam", "raw": {"source_kind": "assignment_list", "title": "Final Project Proposal", "points": 20}, "expect_type": "assignment", "expect_by": "rule"},
+  {"name": "lab", "raw": {"source_kind": "assignment_list", "title": "Lab 4 - Hash Tables"}, "expect_type": "assignment", "expect_by": "rule"},
+  {"name": "quizzes list", "raw": {"source_kind": "quiz_list", "title": "Quiz 5: Eigenvalues", "points": 10}, "expect_type": "quiz", "expect_by": "rule"},
+  {"name": "assignment that is really an online quiz", "raw": {"source_kind": "assignment_list", "title": "Weekly Check-in 7", "submission_types": ["online_quiz"]}, "expect_type": "quiz", "expect_by": "rule"},
+  {"name": "graded discussion", "raw": {"source_kind": "discussion", "title": "Graded Discussion Prompt: Module 5"}, "expect_type": "discussion", "expect_by": "rule"},
+  {"name": "midterm calendar event", "raw": {"source_kind": "calendar_event", "title": "Midterm 2"}, "expect_type": "exam", "expect_by": "keyword"},
+  {"name": "mid-term with hyphen", "raw": {"source_kind": "calendar_event", "title": "CSE 310 Mid-term"}, "expect_type": "exam", "expect_by": "keyword"},
+  {"name": "exam posted as a quiz", "raw": {"source_kind": "quiz_list", "title": "Exam 1 (online)"}, "expect_type": "exam", "expect_by": "keyword"},
+  {"name": "final exam assignment", "raw": {"source_kind": "assignment_list", "title": "Final Exam", "points": 100}, "expect_type": "exam", "expect_by": "keyword"},
+  {"name": "announcement mentioning exams is NOT an exam (real ASU case)", "raw": {"source_kind": "announcement", "title": "Scientific Calculator Policy for Quizzes and Exams"}, "expect_type": "unknown", "expect_by": "none"},
+  {"name": "office hours event", "raw": {"source_kind": "calendar_event", "title": "CSE 540 TA Office Hours"}, "expect_type": "event", "expect_by": "rule"},
+  {"name": "announcement with no rule, LLM off", "raw": {"source_kind": "announcement", "title": "Office hours moved"}, "expect_type": "unknown", "expect_by": "none"},
+  {"name": "word 'examples' must not match exam", "raw": {"source_kind": "assignment_list", "title": "Extra examples worksheet"}, "expect_type": "assignment", "expect_by": "rule"},
+  {"name": "word 'reexamine' must not match exam", "raw": {"source_kind": "assignment_list", "title": "Reexamine your HW2 feedback"}, "expect_type": "assignment", "expect_by": "rule"},
+  {"name": "exams plural on a calendar event", "raw": {"source_kind": "calendar_event", "title": "Practice exams session"}, "expect_type": "exam", "expect_by": "keyword"}
+]

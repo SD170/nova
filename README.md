@@ -16,7 +16,7 @@ Built for **SunHacks 2026** | Arizona State University, Tempe
 
 ---
 
-## ✨ The Idea
+## ✨ The Idea  
 
 College life happens across too many platforms: assignments in Canvas, updates in email, events in Google Calendar, internship opportunities online, and important news everywhere else.
 

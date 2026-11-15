@@ -6,6 +6,10 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 
 ## Status (Nov 15, morning)
 
+- ⚠️ **REAL vs DEMO check (Nov 15, 5 AM).** Two things made Nova answer from **demo data**, which looks like hallucination: (1) the Canvas service on 9001 was restarted in `mock` mode (fake CSE 310 / MAT 343) — `BROWSER_BACKEND=tinyfish` is now the default in `apps/browser-agent/.env`, and a real sync was run; (2) `PUBLIC_WORKSPACE_BASE` in `shared.env` pointed at a **mock** Gmail/Calendar instance (`demo@example.com`, Dana Whitfield / Northwind mail) — it now points at Abishek's real service. **How to tell:** `GET <base>/health` → `backend` must be `tinyfish` (Canvas) / `google` (workspace) and `account` must be the real address; every tool result also has `data_source` (`live` / `demo`).
+- ✅ **LinkedIn co-pilot merged to main (PR #3):** Chrome extension with its own side panel + `/linkedin/*` routes + 5 `linkedin_*` tools in the **`canvas` MCP** (16 tools there now). 134 + 60 tests pass on merged main.
+- ✅ **Saswata's voice architecture (Nov 15):** Vapi router (gpt-4o-mini) → async `ask_brain` (fire-and-forget; the answer is spoken later via Vapi's control URL), `check_task` for "any update?", spoken replies capped at 240 chars. So long jobs (quiz PDFs, research) are naturally async; tool `speak` lines stay short; detail belongs on screen (the side panel).
+
 - ✅ **Voice-sized answers (Nov 15):** every Canvas and Gmail/Calendar/news tool now returns a one-line **`speak`** + compact data, so Nova answers in 1–2 short sentences. Course codes are short ("CSE 507"), titles are short ("Module 5 quiz"), times are spoken ("Monday 11:59 PM"), `gmail_get_message` returns only a gist unless `full=true`. REST endpoints are unchanged (full data for the UI). `SOUL.md` has the matching hard length rules (edited by Abishek, see "Voice-sized answers" below).
 - ✅ **News + ASU events (Nov 15):** Amrita's news API (port 9004, runs on Abishek's laptop) is exposed as two more MCP tools in the same `workspace` MCP: `news_headlines`, `asu_events`. Nothing new to connect for Hermes.
 
@@ -276,6 +280,8 @@ REST mirrors the tools (`/gmail/inbox`, `/gmail/new`, `/gmail/search`, `/gmail/m
 
 ## For Saswata — Gmail + Calendar steps (Nov 15, do these in order)
 
+> **REAL DATA — do this first (Nov 15):** your `apps/brain/.env` `PUBLIC_WORKSPACE_BASE` must be the URL in `shared.env` (Abishek's real Gmail/Calendar). Your own local `google-agent` is in mock mode (`demo@example.com`), so Nova was reading fake mail. No token or client file needs to be shared (never send those): just use Abishek's tunnel. Check: `curl $PUBLIC_WORKSPACE_BASE/health` → `"backend":"google"`, `"account"` = Abishek's address. Same for Canvas: `curl $PUBLIC_CANVAS_BASE/health` → `"backend":"tinyfish"`. Keep your mock instance for offline dev only.
+>
 > **UPDATE Nov 15 (voice-sized answers + news) — what to do now:** `git pull`, then restart the bridge. That's it.
 > - `SOUL.md` was edited by Abishek (with the user's OK): new **ANSWER LENGTH — HARD LIMIT** section (max 2 sentences, say the tool's `speak`, short course codes, mail = one line, never read a body), updated Canvas/Gmail bullets, and two new news lines (`news_headlines`, `asu_events`). Nothing to paste.
 > - **No config change:** the two news tools are in the same `workspace` MCP. After the restart Hermes sees **15** tools there (curl check below → 15).
@@ -646,10 +652,17 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 
 ### [x] F. Voice-sized answers — DONE (Nov 15): `speak` + compact data in both MCP faces, `SOUL.md` length rules.
 ### [x] G. News + ASU events through the workspace MCP — DONE (Nov 15).
-### Parked by Abishek (do last, after everything else is tested)
-- **Exam prep** (was B): brainstorm a cheap voice flow first; the real value is generating study PDFs (heavy on tokens), so it comes last.
-- **Side panel in the UI**: layout discussion first, then a compact data feed + build with Shruti.
-- **LinkedIn co-pilot**: Abishek tests it himself in a separate chat; it is parked on the local branch `abishek/linkedin-copilot` (not pushed) and will be merged only on his word.
+### Agreed plan (Nov 15, ~5 AM) — Abishek + Claude, in this order
+0. **Housekeeping:** context + push (this), services restarted on real backends, demo data labeled "Demo data." in `speak`.
+1. **Exam prep → quiz → PDF (workspace service, `apps/google-agent`):**
+   - `exam_info(course)`: exam date + topics read from the syllabus / syllabus PDF (cited).
+   - Quiz of **6 multiple-choice questions** made by Gemini from the real course PDFs; every question must carry a quote from the source text and is **dropped if the quote is not in the material** (no invented coverage). Short enough for one breath of TTS (question ≤ ~90 chars, options ≤ ~25 chars); the panel shows the full version.
+   - Asked **one by one** (`quiz_start` → `quiz_answer` → … → summary), results saved to memory.
+   - A PDF (questions + answer key + page citations) saved to **`~/Nova/Exam Prep/`**. Nova gets **no general file access**, only this narrow save tool (an email could otherwise trick it).
+2. **Supermemory (sponsor-critical, user has the key + 20 free credits):** memory tools in the workspace MCP (`memory_recall`, `memory_remember`, `memory_profile`, `memory_forget`) using the REST API key (no OAuth in the headless brain); quiz results saved automatically; next quiz biases to weak topics ("skips strong, hits weak"); `GET /memory` for the panel.
+3. **Panel feed (my side):** one activity feed + summary + saved files for the UI.
+4. **Side panel UI inside Shruti's app** (`drafts/shruti/app`, built by Abishek, Shruti not touching it): slim right rail → "Nova Desk" panel on a maximized screen: Now (full detail of the last answer), Today, Mail, Courses, News, LinkedIn, Saved (files with Open / Show in Finder), Memory.
+5. Test everything together on real data, docs, push.
 
 ### [ ] B. Exam prep
 - Syllabus text (+ syllabus PDFs) is now available via materials — use it as a source alongside announcements.

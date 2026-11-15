@@ -882,6 +882,14 @@ async def _run_brain_and_inject(turn_id: str, call_id: str, task_id: str,
     _update_task(call_id, task_id, status=status, result=reply, result_full=reply_full)
     log.info("[t-ask_brain %s] ASYNC done len=%d took=%.3fs q=%r",
              turn_id, len(reply), time.time() - t0, question[:80])
+    # Give the user a breathing window before Nova barges in. Many Canvas
+    # questions take 10-15s for Hermes, and the user often keeps talking
+    # ("…and also, by the way…"). Firing `say` instantly cuts them off
+    # mid-sentence. 1.8s is empirically the sweet spot — long enough to
+    # finish an average trailing clause, short enough that the result still
+    # feels responsive. If user is still speaking at that point we have no
+    # reliable server-side signal, so this is best-effort, not perfect.
+    await asyncio.sleep(1.8)
     ok = _vapi_inject_say(call_id, reply)
     log.info("[t-ask_brain %s] inject call_id=%s ok=%s", turn_id, call_id, ok)
 

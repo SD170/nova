@@ -37,6 +37,8 @@ async function tick(): Promise<void> {
         status: 'running' | 'done' | 'error'
         result?: string
         result_full?: string
+        started_at?: number
+        finished_at?: number
       }>
     }
 
@@ -51,7 +53,10 @@ async function tick(): Promise<void> {
        //       just finished one, they're the same task. This is what keeps the
        //       UI card from stalling 'Working…' when the title string mismatches
        //       after a tool re-ask or trailing whitespace drift.
-      let match =
+      // Match strategy, best → worst. NO 'single-running' fallback because
+      // it mis-completes a fresh task with a stale server 'done' entry from
+      // a previous turn. Require a real title/question match.
+      const match =
         runningUi.find((t) => srv.question && t.title === srv.question) ??
         runningUi
           .slice()
@@ -63,7 +68,12 @@ async function tick(): Promise<void> {
               (srv.question.startsWith(t.title.replace(/…$/, '')) ||
                 t.title.startsWith(srv.question.slice(0, 32))),
           )
-      if (!match && runningUi.length === 1) match = runningUi[0]
+      // Second guard: only complete tasks where the server's finished_at is
+      // AFTER the UI row's startedAt. Prevents a stale server 'done' event
+      // from leaking into a UI row the user just added.
+      if (match && srv.finished_at && (srv.finished_at * 1000) < match.createdAt) {
+        continue
+      }
       if (!match) continue
       const full = srv.result_full ?? srv.result ?? ''
       if (srv.status === 'done') {

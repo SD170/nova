@@ -31,6 +31,60 @@ Code: `apps/browser-agent/` (FastAPI, port **9001**) and `apps/google-agent/` (F
 - ⏳ **Not built yet:** exam dates from announcements, grades.
 - There is **no Canvas API token** for ASU accounts. All Canvas data comes through a TinyFish browser that is logged in as the student.
 
+## RUNBOOK — run everything end to end on Saswata's laptop (Nova, Canvas, Gmail, Calendar, LinkedIn, news, exam prep, memory)
+
+**Two laptops, one rule:** *Abishek's laptop runs the data services* (they hold the logged-in Canvas browser, the Google login and the supermemory key; none of that is ever sent anywhere). *Saswata's laptop runs Nova* (brain, voice, the app) and reaches Abishek's services through two public tunnel URLs. Secrets never go in the repo: the shared key is sent privately.
+
+### A. Abishek's laptop — start the services (5 terminals)
+```bash
+cd apps/browser-agent    && .venv/bin/uvicorn app.main:app --port 9001      # Canvas + LinkedIn (BROWSER_BACKEND=tinyfish is set in its .env)
+cd apps/google-agent     && .venv/bin/uvicorn app.main:app --port 9005      # Gmail, Calendar, exam prep, quiz, memory, news tools, panel API
+cd drafts/amrita-current-events && .venv/bin/uvicorn app.main:app --port 9004   # Amrita's news (first time: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
+cloudflared tunnel --url http://localhost:9001      # prints https://....trycloudflare.com  -> PUBLIC_CANVAS_BASE
+cloudflared tunnel --url http://localhost:9005      # prints https://....trycloudflare.com  -> PUBLIC_WORKSPACE_BASE
+```
+1. **Check REAL data** (this is what looked like hallucination before): `curl localhost:9001/health` → `"backend":"tinyfish"`; `curl localhost:9005/health` → `"backend":"google"` and Abishek's account. If `mock`/`demo` shows up, Nova says "Demo data." out loud.
+2. Run a Canvas sync once: `curl -X POST -H "X-Canvas-Key: $KEY" localhost:9001/sync` (about 40 s).
+3. **If a tunnel URL changed** (it changes every restart): put the new URLs in `shared.env` (`PUBLIC_CANVAS_BASE`, `PUBLIC_WORKSPACE_BASE`), push, and tell Saswata. Also set `PUBLIC_WORKSPACE_BASE` in `apps/google-agent/.env` (download links) and restart that service.
+4. Google login expires after 7 days (done Nov 15 → Nov 22): `cd apps/google-agent && .venv/bin/python -m scripts.google_login`.
+5. Keep the Mac awake and online (`caffeinate -dimsu` in another terminal).
+
+### B. Saswata's laptop — set up Nova (about 15 minutes)
+1. `git pull` (this repo, `main`).
+2. **`apps/brain/.env`:** `PUBLIC_CANVAS_BASE` and `PUBLIC_WORKSPACE_BASE` = the two URLs in `shared.env`; `CANVAS_API_KEY` = the shared key (Abishek sends it privately). **Check:** `curl $PUBLIC_WORKSPACE_BASE/health` must say `"backend":"google"` (NOT `mock`) and `curl $PUBLIC_CANVAS_BASE/health` must say `"backend":"tinyfish"`. Your local mock google-agent is only for offline dev; never point Nova at it for the demo.
+3. **Voice quiz = fast path.** In `apps/brain/setup_vapi.py` add the two Vapi function tools `quiz_answer` / `quiz_repeat` (the exact ~10-line snippet is in the section "FAST voice quiz path" below, pointing at `$PUBLIC_WORKSPACE_BASE/vapi/quiz` with header `X-Canvas-Key`), add them to the `tools=[...]` lists, add the one router rule from that section to `NOVA_ROUTER.md`, then `python3 setup_vapi.py` and restart the bridge (`python3 bridge.py`). Without this the quiz still works by voice, just ~10 s slower per answer; the **side panel** quiz needs none of it.
+4. **The app (Nova Desk side panel):** `cd drafts/shruti/app` → `cp .env.example .env` (keep the existing `VITE_VAPI_*` values) → set `VITE_NOVA_BASE=<PUBLIC_WORKSPACE_BASE>` and `VITE_NOVA_KEY=<shared key>` → `npm install` → `npm run dev`. **The desk only appears when `VITE_NOVA_BASE` is set**, loads lazily and sits behind an error guard: if it ever fails, the avatar app still runs and the console shows `[nova-desk] disabled: <error>`. (The desk code was written but not run by Claude: if it fails, send the first lines of the error to Abishek.) Use `npm run dev` for the demo (`npm run build` type-checks and may flag small type errors in `src/nova/`).
+5. **LinkedIn:** Chrome → `chrome://extensions` → Developer mode → **Load unpacked** → `apps/linkedin-extension`. Open the extension side panel, click ⚙, enter `PUBLIC_CANVAS_BASE` and the key. Scroll LinkedIn: posts, people and drafts appear in its panel and through `linkedin_*` tools.
+6. Allow the mic, hold **SPACE** to talk.
+
+### C. End-to-end test script (say these to Nova, expect these answers; every spoken reply is 1–2 short sentences)
+| # | Say | Expect |
+|---|---|---|
+| 1 | "What's due this week?" | "4 things due this week… First: Assignment 3 for CSE 579, today 11:59 PM." (real courses CSE 507 / 540 / 579) |
+| 2 | "What's in my mail?" | "N important out of 20. Top: <sender>, <subject>." (real inbox, not Dana Whitfield / Northwind) |
+| 3 | "Summarize my top email" | one-line gist, not the whole email |
+| 4 | "Reply yes to that" | says what the reply says, then "draft saved in Gmail" (check Gmail Drafts; nothing is ever sent) |
+| 5 | "Put my deadlines on my calendar" | preview, **waits for yes**, then adds them to the "Nova" calendar |
+| 6 | "What's in the news?" | one headline (confirmed by N outlets) |
+| 7 | "When is my CSE 540 exam?" | "CSE 540: Final Exam, Dec 1, 2026 Dec 4, 2026. Covers Modules 1 to 7." |
+| 8 | "Quiz me on CSE 540 module 5" | "give me a moment" → "Quiz ready: 6 questions… Voice or side panel?" |
+| 9 | "Side panel" | the quiz opens in the Nova Desk, one question at a time; the score at the end; a toast says the cards PDF is saved → **`~/Nova/Exam Prep/` on this laptop** |
+| 10 | "Voice" (new quiz) | Nova asks Question 1 with A–D; answer "B"; next question; the score at the end (no right/wrong reveal in between) |
+| 11 | "What am I weak at?" | from memory (the quiz result is saved automatically; the next quiz leans on those topics) |
+| 12 | "Who should I reach out to on LinkedIn?" | people from the scrolled feed (after scrolling LinkedIn with the extension on) |
+
+### D. If something is wrong
+| Symptom | Cause / fix |
+|---|---|
+| Nova reads fake mail or fake courses (Dana Whitfield, CSE 310, MAT 343) | `PUBLIC_*_BASE` points at a mock instance. Fix step B2. |
+| "Can't reach Nova's services" in the Desk | `VITE_NOVA_BASE`/`VITE_NOVA_KEY` wrong or empty, or Abishek's 9005 service/tunnel is down. |
+| Desk missing | `VITE_NOVA_BASE` not set, or it crashed: check the console for `[nova-desk] disabled`. |
+| `google_login_expired` | Abishek re-runs the Google login (A4). |
+| "Couldn't reach the news service" | Amrita's service on 9004 is not running on Abishek's laptop (A, third terminal). |
+| Quiz says it can't write a quiz | Gemini was busy (it retries 3×); ask again. |
+| PDF not in `~/Nova/Exam Prep` | the app saves it when the `pdf_saved` notification arrives; look in the Desk's **Saved** tab, use "Save to Nova folder". |
+| Memory off | `SUPERMEMORY_API_KEY` is only in Abishek's `apps/google-agent/.env`. |
+
 ## Decisions (locked)
 
 1. **TinyFish** provides the logged-in browser. We do **not** use TinyFish's AI agent (TinyAgent) for Canvas — tested: 1–2 min per page, text dates, and TinyFish's safety check blocked reading Canvas JSON. Instead our code reads Canvas's own JSON inside the TinyFish browser: ~7 s, exact dates, exact submitted flags.

@@ -1,17 +1,26 @@
 # runtime state — each machine has its own
-hermes-home/shruti/memories/
-hermes-home/shruti/sessions/
-hermes-home/shruti/logs/
-hermes-home/shruti/cache/
-hermes-home/shruti/audio_cache/
-hermes-home/shruti/image_cache/
-hermes-home/shruti/home/
-hermes-home/shruti/hooks/
-hermes-home/shruti/cron/
-hermes-home/shruti/auth.lock
-hermes-home/shruti/.env
-hermes-home/shruti/state.db*
-hermes-home/shruti/sessions.db*
+hermes-home/*/memories/
+hermes-home/*/sessions/
+hermes-home/*/logs/
+hermes-home/*/cache/
+hermes-home/*/audio_cache/
+hermes-home/*/image_cache/
+hermes-home/*/home/
+hermes-home/*/hooks/
+hermes-home/*/cron/
+hermes-home/*/plans/
+hermes-home/*/workspace/
+hermes-home/*/skins/
+hermes-home/*/bin/
+hermes-home/*/auth.lock
+hermes-home/*/auth.json
+hermes-home/*/.env
+hermes-home/*/.no-bundled-skills
+hermes-home/*/.skills_prompt_snapshot.json
+hermes-home/*/.update_check
+hermes-home/*/models_dev_cache.json
+hermes-home/*/state.db*
+hermes-home/*/sessions.db*
 
 # secrets
 .env

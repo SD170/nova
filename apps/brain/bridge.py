@@ -63,7 +63,7 @@ _load_env_file(HERE.parent.parent / "shared.env")
 
 HERMES_PROFILE_HOME = Path(
     os.environ.get("HERMES_PROFILE_HOME",
-                   str(HERE / "hermes-home" / "shruti"))
+                   str(HERE / "hermes-home" / "default"))
 ).expanduser().resolve()
 HERMES_BIN = os.environ.get("HERMES_BIN", "hermes")
 MAX_HERMES_SECONDS = int(os.environ.get("MAX_HERMES_SECONDS", "45"))
@@ -113,7 +113,7 @@ _sessions_by_call: dict[str, str] = {}
 #
 # The persona token is prepended to the user message so SOUL.md's rule fires.
 
-PERSONA_RE = re.compile(r"\b(jarvis|shruti)\b", re.I)
+PERSONA_RE = re.compile(r"\b(nova|shruti)\b", re.I)
 
 
 def _infer_persona(body: dict[str, Any]) -> str:
@@ -130,7 +130,7 @@ def _infer_persona(body: dict[str, Any]) -> str:
             if m:
                 return m.group(1).lower()
             break
-    return "jarvis"
+    return "nova"
 
 
 def _extract_call_id(body: dict[str, Any]) -> str:
@@ -192,6 +192,15 @@ async def _run_hermes(prompt: str, resume_session: str | None) -> tuple[str, str
 
     out = (stdout_b or b"").decode("utf-8", errors="replace").strip()
     err = (stderr_b or b"").decode("utf-8", errors="replace").strip()
+
+    # Drop any leading Hermes warning lines (e.g. "⚠ tirith security scanner ...")
+    # that would otherwise end up spoken by TTS.
+    while out.startswith(("⚠", "WARNING", "warning:", "Warning:")):
+        nl = out.find("\n")
+        if nl == -1:
+            out = ""
+            break
+        out = out[nl + 1:].lstrip()
 
     if proc.returncode != 0:
         log.error("hermes exit=%d stderr=%s", proc.returncode, err[:500])

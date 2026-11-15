@@ -13,7 +13,8 @@ Code: `drafts/amrita-current-events/` (FastAPI, port **9004** — the `news_*` s
 - ✅ **ASU events** from ASU's own public feeds (official calendar + Sun Devil Central student orgs).
 - ✅ **Accuracy rules**: last 24 h only, trusted newsrooms only (default), same story across outlets merged → "confirmed by N outlets".
 - ✅ **Phone push alerts** per student's interests (Web Push / PWA), confirmed stories only, quiet hours. Tested through a real push service.
-- ✅ 31 offline tests (network faked).
+- ✅ **UI tool file** `client/newsTools.ts` + React hooks `client/useNews.ts` — typed, live data by default (≤60 s old).
+- ✅ 34 offline tests (network faked).
 - ⏳ Public HTTPS tunnel for `:9004` (needed for phones + remote brain) — not started on my machine yet.
 
 ## Decisions (locked)
@@ -30,12 +31,14 @@ Code: `drafts/amrita-current-events/` (FastAPI, port **9004** — the `news_*` s
 | Brain tool | Method + path | Returns |
 |---|---|---|
 | `get_available_topics()` | `GET /topics` | `{sections: [{id, label, outlets[]}], custom_topics, examples}` |
-| `fetch_news(topics, since_hours=24, trusted_only=true, per_topic=5)` | `GET /news?topics=world,Phoenix Suns,AI policy` | `{topics, count, links: [url...], items: [NewsItem], by_topic, speak}` |
-| `fetch_asu_events(days=7, query?, campus?, limit=25)` | `GET /events?days=7&query=career fair` | `{count, links: [url...], items: [Event], sources, speak}` |
+| `fetch_news(topics, since_hours=24, trusted_only=true, per_topic=5, live=false)` | `GET /news?topics=world,Phoenix Suns,AI policy` | `{topics, count, links: [url...], items: [NewsItem], by_topic, speak}` |
+| `fetch_asu_events(days=7, query?, campus?, limit=25, live=false)` | `GET /events?days=7&query=career fair` | `{count, links: [url...], items: [Event], sources, speak}` |
 | `get_news_item(item_id)` | `GET /news/item/{id}` | one `NewsItem` + `text` (article text when the publisher allows) — 404 `item_not_found` |
 | `dedupe_news(items)` | `POST /news/dedupe` body `[{id, title, source, url}]` | `{clusters: [{lead_id, ids, sources, outlets, confirmed}]}` |
 | `get_news_health()` | `GET /health` | `{ok, tools, keyed_sources, cached_stories, push_subscribers, auth_required}` |
 | (Saswata's contract name) | `GET /news/candidates?topics=...&since=24h` | same as `fetch_news`, up to 15 per topic (raw pool for ranking) |
+
+`live=true` → fetched right now (never older than 60 s) instead of the 15-min cache; use for "latest" / "breaking".
 
 Tool-call routes (if the brain prefers one URL): `GET /tools` (function definitions), `POST /tools/call {name, arguments}`, `POST /tools/vapi` (Vapi tool-calls envelope).
 
@@ -134,13 +137,13 @@ cd drafts/amrita-current-events
 python -m venv .venv && .venv/Scripts/activate        # macOS: source .venv/bin/activate
 pip install -r requirements.txt && cp .env.example .env
 uvicorn app.main:app --port 9004                       # docs: http://localhost:9004/docs
-pytest                                                 # 31 tests, no network
+pytest                                                 # 34 tests, no network
 ```
 
 ## Handoffs
 
 - **Saswata (brain):** register the 6 tools (definitions at `GET /tools`, or map names → endpoints from the table). Base URL `http://localhost:9004` (tunnel URL → `shared.env` `PUBLIC_NEWS_BASE` once up). Header `X-Jarvis-Key` if I set `NEWS_AGENT_API_KEY` (I'll send the key privately). Daily Pulse "interests" lane → `fetch_news(topics=<from supermemory>)` + `fetch_asu_events`.
-- **Shruti (UI):** render `items` with `url`, `source`, `published_at`, and the `confirmed` / `outlets` badge; events with `starts_at`, `location`, `url`.
+- **Shruti / UI team:** copy `drafts/amrita-current-events/client/newsTools.ts` and `useNews.ts` into `src/tools/`. Use `useLiveNews(topics)` / `useAsuEvents({days})` or `fetchNews(...)`; route LLM tool calls with `callNewsTool(name, args)`. Set `VITE_NEWS_BASE` if not on localhost. Render `items` with `url`, `source`, `published_at`, and the `confirmed` / `outlets` badge; events with `starts_at`, `location`, `url`. CORS already allows Vite `:5173` and Electron.
 - **Team:** decide who owns course materials / retrieval-quiz (no longer me).
 
 ## Open questions

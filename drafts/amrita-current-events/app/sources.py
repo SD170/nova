@@ -12,6 +12,7 @@ Every item carries its source URL so Jarvis can always cite where a headline cam
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import email.utils
 import weakref
 import hashlib
@@ -101,11 +102,14 @@ def _strip_html(s: str) -> str:
 # Small in-memory cache so a page refresh doesn't hammer free public services.
 _CACHE: dict[str, tuple[float, list[Item]]] = {}
 CACHE_SECONDS = 300
+LIVE_SECONDS = 60  # live=true: nothing older than this, but still protects sources from a fast-polling UI
+# Set to LIVE_SECONDS for the duration of a live request (copied into every gathered task).
+MAX_AGE: contextvars.ContextVar[int] = contextvars.ContextVar("news_max_age", default=CACHE_SECONDS)
 
 
 async def _cached(key: str, fetch) -> list[Item]:
     hit = _CACHE.get(key)
-    if hit and time.time() - hit[0] < CACHE_SECONDS:
+    if hit and time.time() - hit[0] < min(CACHE_SECONDS, MAX_AGE.get()):
         return hit[1]
     items = await fetch()
     _CACHE[key] = (time.time(), items)

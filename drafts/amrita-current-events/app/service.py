@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, Union
 
-from . import digest, extract, outlets
+from . import digest, extract, outlets, sources
 from .config import settings
 from .models import (Cluster, DedupeIn, DedupeOut, ItemDetail, NewsItem, NewsOut, Topic, TopicsOut,
                      TopicStatus)
@@ -72,12 +72,18 @@ class NewsService:
 
     # ───────────────────────── tool: fetch_news ─────────────────────────
     async def fetch_news(self, topics: Union[str, list[str], None], since_hours: Optional[int] = None,
-                         trusted_only: bool = True, per_topic: int = 5) -> NewsOut:
+                         trusted_only: bool = True, per_topic: int = 5, live: bool = False) -> NewsOut:
+        """live=True: wait for a fresh fetch (nothing older than sources.LIVE_SECONDS) instead of serving cache."""
         interests = parse_topics(topics) or parse_topics("top")
         since = max(1, min(since_hours or settings.default_since_hours, 72))
         per = max(1, min(per_topic, settings.per_topic_max))
         key = (tuple(sorted(i["label"].lower() for i in interests)), since, trusted_only, per)
         hit = self._cache.get(key)
+        if live:
+            if hit and time.time() - hit[0] < sources.LIVE_SECONDS:
+                return hit[1]
+            sources.MAX_AGE.set(sources.LIVE_SECONDS)
+            return await self._refresh(key, interests, since, trusted_only, per)
         if hit:
             age = time.time() - hit[0]
             if age < settings.cache_ttl_minutes * 60:

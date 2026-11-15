@@ -48,6 +48,7 @@ TOOL_DEFINITIONS: list[dict] = [
                     "topics": {"type": "string", "description": "Comma-separated, e.g. \"world, Phoenix Suns, AI policy\""},
                     "since_hours": {"type": "integer", "description": "How far back, 1-72. Default 24 (today).", "default": 24},
                     "trusted_only": {"type": "boolean", "description": "Only established newsrooms. Default true.", "default": True},
+                    "live": {"type": "boolean", "description": "true = fetch right now (data at most 60 s old) instead of the 15-min cache. Use when the student asks for the latest/breaking news.", "default": False},
                     "per_topic": {"type": "integer", "description": "Max stories per topic, 1-15. Default 5.", "default": 5},
                 },
                 "required": ["topics"],
@@ -69,6 +70,7 @@ TOOL_DEFINITIONS: list[dict] = [
                     "query": {"type": "string", "description": "Optional keywords, e.g. \"career fair\", \"AI\", \"free food\"."},
                     "campus": {"type": "string", "description": "Optional: Tempe, Downtown Phoenix, West, Polytechnic, Online."},
                     "limit": {"type": "integer", "description": "Max events, 1-100. Default 25.", "default": 25},
+                    "live": {"type": "boolean", "description": "true = fetch right now (data at most 60 s old) instead of the 15-min cache. Use when the student asks for the what's on right now.", "default": False},
                 },
             },
         },
@@ -125,6 +127,10 @@ def _args(arguments: Any) -> dict:
     return dict(arguments or {})
 
 
+def _bool(v: Any) -> bool:
+    return v.strip().lower() in ("1", "true", "yes") if isinstance(v, str) else bool(v)
+
+
 async def call(name: str, arguments: Any = None) -> dict:
     a = _args(arguments)
     if name == "get_available_topics":
@@ -135,12 +141,13 @@ async def call(name: str, arguments: Any = None) -> dict:
             topics = ",".join(map(str, topics))
         if not topics or not str(topics).strip():
             raise ToolError(422, "topics is required, e.g. \"world, Phoenix Suns, AI\"")
-        out = await service.fetch_news(topics, a.get("since_hours"), bool(a.get("trusted_only", True)),
-                                       int(a.get("per_topic") or 5))
+        out = await service.fetch_news(topics, a.get("since_hours"), _bool(a.get("trusted_only", True)),
+                                       int(a.get("per_topic") or 5), _bool(a.get("live")))
         return out.model_dump()
     if name == "fetch_asu_events":
         return await events.fetch(days=max(1, min(int(a.get("days") or 7), 60)), query=str(a.get("query") or ""),
-                                  campus=str(a.get("campus") or ""), limit=max(1, min(int(a.get("limit") or 25), 100)))
+                                  campus=str(a.get("campus") or ""), limit=max(1, min(int(a.get("limit") or 25), 100)),
+                                  live=_bool(a.get("live")))
     if name == "get_news_item":
         item = await service.get_item(str(a.get("item_id") or ""))
         if not item:

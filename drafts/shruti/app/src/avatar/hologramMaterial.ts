@@ -133,26 +133,34 @@ export function createHologramMaterial() {
         p.y += 0.03 * bow * border * front;
         p.z += 0.015 * bow * border * front;
 
-        // ── MOUTH LAYER (audio visemes). Jaw rotates open around a hinge near the
-        // ears; the chin and lower cheeks travel with it (wide, soft falloff).
-        float soft  = mix(0.1, 1.05, smoothstep(uMouthHalfW * 0.8, uMouthHalfW * 1.5, ax));
-        float below = smoothstep(uMouthY + 0.03, uMouthY - soft, p.y);
-        float side  = 1.0 - smoothstep(uMouthHalfW * 1.8, uMouthHalfW * 4.2, ax);
+        // ── MOUTH LAYER (audio visemes): the JAW ROTATES around a hinge just below
+        // the ears, so the lower lip and chin swing down together.
+        //  • corners anchored: near the lip line the swing follows an oval across the
+        //    mouth (full at the centre, zero at the corners) → soft oval opening
+        //  • the chin swings fully; cheeks blend in with a wide, smooth falloff
+        //  • every term scales with uJaw, so the closed mouth is untouched
+        float mxN   = ax / (uMouthHalfW * 1.05);
+        float oval  = sqrt(max(0.0, 1.0 - mxN * mxN));                 // 1 centre → 0 corners
+        float soft  = mix(0.06, 1.1, smoothstep(0.55, 1.45, mxN));      // sharp only between the lips
+        float below = smoothstep(uMouthY + 0.012, uMouthY - soft, p.y);
+        float side  = 1.0 - smoothstep(uMouthHalfW * 1.8, uMouthHalfW * 4.5, ax);
         float neck  = smoothstep(uChinY - 1.4, uChinY - 0.3, p.y);
         float wJaw  = below * side * neck * front;
         vJawW = wJaw;
+        float chinFull = smoothstep(uMouthY - 0.06, uMouthY - 0.6, position.y); // lower down → whole jaw
+        float swing = mix(oval, 1.0, chinFull);
         vec3 pivot = vec3(0.0, uHinge.x, uHinge.y);
-        p = mix(p, rotX(p - pivot, uJaw * 0.17) + pivot, wJaw);
+        p = mix(p, rotX(p - pivot, uJaw * 0.075 * swing) + pivot, wJaw); // ~55% smaller than before
 
         float lipX = 1.0 - smoothstep(uMouthHalfW * 0.75, uMouthHalfW * 1.25, ax);
         float lipY = 1.0 - smoothstep(0.0, 0.32, abs(dy));
         float wLip = lipX * lipY * front;
         float upper = smoothstep(uMouthY - 0.01, uMouthY + 0.05, position.y) * wLip;
         float lower = smoothstep(uMouthY + 0.01, uMouthY - 0.05, position.y) * wLip;
-        p.y += uJaw * 0.07 * upper;                       // upper lip lifts as it opens
-        // "ee": wider, corners pulled back · "oo": rounded + pushed forward
-        p.x *= 1.0 + (uWide * 0.13 - uRound * 0.2) * wLip;
-        p.z += (uRound * 0.13 - uWide * 0.025) * wLip;
+        p.y += uJaw * 0.02 * upper * oval;                // upper lip: ~10% of the lower lip's travel
+        // "ee" / "oo": subtle, and zero at the corners so they stay anchored
+        p.x *= 1.0 + (uWide * 0.035 - uRound * 0.09) * wLip * oval;
+        p.z += (uRound * 0.09 - uWide * 0.015) * wLip * oval;
         // "mm/bb": lips pressed together (thinner, slightly in)
         p.y = mix(p.y, uMouthY + (p.y - uMouthY) * 0.72, uMM * (upBand + lowBand) * taper * front);
         p.z -= 0.025 * uMM * wLip;
@@ -273,22 +281,20 @@ export function createHologramMaterial() {
         // (drawn on the DEFORMED surface so the lines stay evenly spaced as it opens).
         // Lips keep the normal face grid, plus a brighter outline so the shape reads.
         float ax   = abs(vRest.x);
-        float mx   = 1.0 - smoothstep(uMouthHalfW * 0.5, uMouthHalfW * 1.2, ax);
+        // elliptical mask (no rectangular edges): full at the centre, fading to the corners
+        float mxE  = ax / uMouthHalfW;
+        float mx   = 1.0 - smoothstep(0.35, 1.0, mxE);
         float mz   = smoothstep(1.4, 1.9, vRest.z);
         float open = smoothstep(0.02, 0.22, uJaw);
         float seam = abs(vRest.y - (uMouthY - 0.01)) / 0.075;
-        // Stretch test for the asymmetric mouth corners: the gap triangles span the
-        // opening, so they move ~5x+ more on screen than their rest (skin) coordinate
-        // changes. The lips stretch only moderately as the jaw opens → they stay lips.
+        // Stretch test: gap triangles span the opening, so they move far more on screen
+        // than their rest (skin) coordinate changes; the lips themselves don't.
         float restGrad = length(vec2(dFdx(vRest.y), dFdy(vRest.y)));
         float posGrad  = max(length(vec2(dFdx(vPos.y), dFdy(vPos.y))), 1e-6);
-        // corners stretch less than the middle of the opening → looser test there
-        float corner   = smoothstep(uMouthHalfW * 0.55, uMouthHalfW * 0.95, ax);
-        float gapLim   = mix(0.2, 0.42, corner);
-        float gapTri   = 1.0 - smoothstep(gapLim * 0.45, gapLim, restGrad / posGrad);
-        float mxWide   = 1.0 - smoothstep(uMouthHalfW * 1.15, uMouthHalfW * 1.6, ax);
-        float nearSeam = 1.0 - smoothstep(0.9, 1.5, seam);
-        float cavity = max((1.0 - smoothstep(0.5, 0.9, seam)) * mx, gapTri * mxWide * nearSeam) * mz * open;
+        float gapTri   = 1.0 - smoothstep(0.1, 0.32, restGrad / posGrad);
+        float nearSeam = 1.0 - smoothstep(0.8, 1.4, seam);
+        // soft oval: dark in the middle, fading gently into the lips
+        float cavity = max(1.0 - smoothstep(0.3, 1.0, seam), gapTri * nearSeam) * mx * mz * open;
         cavity = clamp(cavity, 0.0, 1.0);
 
         // interior: solid black with the neon-green grid continuing inside

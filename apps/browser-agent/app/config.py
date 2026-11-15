@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     # Optional: only these Canvas course ids (comma-separated). Empty = auto.
     canvas_course_ids: Annotated[list[str], NoDecode] = []
 
+    # Course materials (see app/materials.py)
+    materials_max_mb: float = 25           # skip bigger files (whole textbooks)
+    materials_prefetch_days: int = 7       # pre-extract modules dated today..+N days (+ syllabus)
+    materials_prefetch_limit: int = 12     # max files pre-extracted per course per sync
+    materials_prefetch_seconds: float = 60 # time budget for pre-extraction per sync
+
     # Classification LLM (Gemini). Used only if enabled AND a key is set.
     classifier_llm_enabled: bool = True
     llm_confidence_threshold: float = 0.7
@@ -58,6 +64,10 @@ class Settings(BaseSettings):
     @property
     def snapshot_path(self) -> Path:
         return self.data_dir / "canvas_snapshot.json"
+
+    @property
+    def materials_dir(self) -> Path:
+        return self.data_dir / "materials"
 
     @property
     def llm_active(self) -> bool:

@@ -4,7 +4,7 @@ RawItem  = what a backend fetched from Canvas, NOT yet classified.
 Item     = what the orchestrator receives (after classify.py).
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -103,14 +103,63 @@ class Item(BaseModel):
     data_source: DataSource
 
 
+class MaterialType(str, Enum):
+    pdf = "pdf"            # PDF file -> text with [page N] markers
+    page = "page"          # Canvas wiki page (HTML -> text)
+    syllabus = "syllabus"  # the course syllabus (often lists exam dates + topics)
+    file = "file"          # other file (txt -> text; pptx/docx/... listed as link only)
+    link = "link"          # external URL: listed, never followed
+
+
+class TextStatus(str, Enum):
+    ready = "ready"              # text cached: GET /materials/{id}/text is instant
+    not_fetched = "not_fetched"  # text extracted on first request (~2-10 s)
+    too_large = "too_large"      # file over MATERIALS_MAX_MB (e.g. whole textbooks)
+    unsupported = "unsupported"  # file type we can't read (pptx, docx, images...)
+    link_only = "link_only"      # external link: url only
+    locked = "locked"            # Canvas has it locked for the student
+    error = "error"              # last extraction failed
+
+
 class Material(BaseModel):
-    id: str
+    """One study item from a course's Modules (plus Files tab + syllabus).
+    The listing never carries the text; fetch it with GET /materials/{id}/text."""
+
+    id: str                  # file-123 | page-<course>-<slug> | syllabus-<course> | link-<course>-<item>
     course_id: str
+    course_code: str = ""
     title: str
-    type: str  # pdf | page | slides | other
-    url: str
-    local_path: str | None = None
-    extracted_text: str | None = None
+    type: MaterialType
+    url: str                 # Canvas page for the student / citation
+    module: str | None = None            # "(11/11 - 11/17) Module 5: Mining"
+    module_position: int | None = None   # order of the module in the course
+    position: int | None = None          # order inside the module
+    week_start: date | None = None       # parsed from the module name, if it has dates
+    week_end: date | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    updated_at: datetime | None = None
+    text_status: TextStatus = TextStatus.not_fetched
+    fetch_ref: str | None = None         # internal: Canvas API path used to get the content
+
+
+class MaterialText(BaseModel):
+    """GET /materials/{id}/text. PDFs keep [page N] markers for citations.
+    Long texts come in slices: call again with offset=next_offset."""
+
+    material_id: str
+    course_id: str
+    course_code: str = ""
+    title: str
+    type: MaterialType
+    module: str | None = None
+    source_url: str
+    fetched_at: datetime
+    pages: int | None = None
+    total_chars: int
+    offset: int
+    next_offset: int | None   # None = this is the end
+    text: str
 
 
 class Snapshot(BaseModel):
@@ -159,3 +208,11 @@ class ItemNotFound(Exception):
 
 class NoSnapshot(Exception):
     """No data yet: call POST /sync first."""
+
+
+class MaterialNotFound(Exception):
+    pass
+
+
+class MaterialTextUnavailable(Exception):
+    """Material exists but has no readable text (too large, link, unsupported...)."""

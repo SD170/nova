@@ -4,24 +4,28 @@ Owner: Abishek (GitHub: Abishek1801)
 Role: **Browser agent — real Canvas data via TinyFish, item classification, and the to-do list**
 Code: `apps/browser-agent/` (FastAPI, port **9001** from `shared.env`) — merged to `main`.
 
-## Status (Nov 14, evening)
+## Status (Nov 14, night)
 
 - ✅ **Working on real ASU Canvas.** One sync ≈ 7 s for Canvas + ≈ 5–25 s for Gemini. Answers are instant from cache.
 - ✅ **To-do list = only work not submitted yet.** Submitted / excused / marked-complete items never appear (hard rule).
 - ✅ **Gemini** writes "what to do" steps, topics and notes for each open item.
 - ✅ **Saswata's TODOs 1, 2, 3, 5 done:** `/brief`, `/items/{id}`, `/items/{id}/user-done` (+ undo), public Cloudflare URL with a shared-secret header. Reads never block on a sync any more.
-- ⏳ **Not built yet:** course materials (TODO 4, PDFs for Amrita), exam dates from announcements, grades.
+- ✅ **Course materials (TODO 4) done:** real lists for all 3 courses (269 materials: syllabus, linked syllabus PDFs, lecture PDFs, Canvas pages, links) + plain text on demand with `[page N]` markers.
+- ✅ **MCP (TODO 6) done:** same service also at `/mcp` (streamable-HTTP), 11 tools, same `X-Jarvis-Key`. REST unchanged.
+- ⏳ **Not built yet:** exam dates from announcements, grades.
 - There is **no Canvas API token** for ASU accounts. All Canvas data comes through a TinyFish browser that is logged in as the student.
 
 ## Decisions (locked)
 
 1. **TinyFish** provides the logged-in browser. We do **not** use TinyFish's AI agent (TinyAgent) for Canvas — tested: 1–2 min per page, text dates, and TinyFish's safety check blocked reading Canvas JSON. Instead our code reads Canvas's own JSON inside the TinyFish browser: ~7 s, exact dates, exact submitted flags.
-2. **Separate HTTP service.** The orchestrator calls it over HTTP. No shared Python imports.
+2. **Separate service, two faces:** REST (`/brief`, `/items/...`) and MCP (`/mcp`) over the same code, port 9001. No shared Python imports.
 3. **Only the orchestrator writes to supermemory.** The browser agent just returns data.
 4. **Classification is explainable:** every item has `classified_by` + `reason`, and the to-do filter is a hard rule the LLM cannot override.
 5. **Read-only:** only GET requests to Canvas. Never submits, posts, clicks or starts a quiz.
 6. **LLM = Gemini** (`gemini-3.5-flash`, falls back to `gemini-3.5-flash-lite`). Without a key the service still works with rules only.
 7. **Plan B (local Chrome + AgentQL) dropped.** If ever needed, the same JSON code can point Playwright at a local Chrome instead.
+8. **Materials: this service extracts the text** (only it has the logged-in browser). Amrita gets plain text + page markers and does chunking/embedding herself.
+9. **Materials are listed every sync, text is fetched on demand** (CSE 507 alone has 424 MB of PDFs). Pre-fetched each sync: syllabus + syllabus-linked PDFs + modules dated this/next week. Files over 25 MB (whole textbooks) are `too_large`; `.zip/.rar`, images, video are skipped; external links are listed, never followed.
 
 ## The flow — one sync, step by step
 
@@ -44,6 +48,12 @@ Orchestrator (Saswata) ──HTTP──> apps/browser-agent :9001
                                   incl. submitted / excused / marked-complete flags
       /api/v1/courses           → course names (current = has work due; ASU leaves term dates empty)
       /api/v1/courses/:id/assignments/:id → instructions, submission types, LockDown flag (parallel)
+ 3b. Materials list (all courses in parallel)                                         ~7 s
+      /api/v1/courses/:id/modules?include[]=items  → files, pages, links + module name/dates
+      /api/v1/courses/:id/files                    → extra files (403 in CSE 540/579 = skipped)
+      /api/v1/courses/:id?include[]=syllabus_body  → syllabus + PDFs linked from it
+ 3c. Pre-extract text: syllabus + this/next week's modules (≤ 12 per course, ≤ 60 s;
+      cached in data/materials/, so later syncs only fetch new/changed files)
  4. Close the browser WITHOUT saving (the saved login is untouched)
  5. Gemini: ONE batched call with only the OPEN items (not submitted work,
     not office hours) → type check, steps, topics, notes                             ~5–25 s
@@ -79,13 +89,14 @@ If a sync fails, the last good snapshot is served. If the ASU login expired: HTT
 | `get_item_details` | `GET /items/{item_id}` | one `Item` (404 `item_not_found`) | instant |
 | `get_course_items` | `GET /items?course_id=` | `{synced_at, data_source, items: [Item]}` | instant |
 | `list_courses` | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` | instant |
-| `get_course_materials` | `GET /materials?course_id=` | `{synced_at, data_source, materials: [...]}` — **empty for real Canvas (TODO 4)** | instant |
+| `get_course_materials` | `GET /materials?course_id=&topic_hint=&this_week=` | `{synced_at, data_source, materials: [Material]}` — list only, **no text** | instant |
+| `get_material_text` | `GET /materials/{material_id}/text?offset=0&max_chars=50000` | `MaterialText` (below). Long docs come in slices: repeat with `offset=next_offset` until `null` | instant if `text_status=ready`, else ~2–10 s once |
 | `mark_item_done_locally` | `POST /items/{item_id}/user-done` | the updated `Item` (`in_todo:false, user_done:true`) | instant |
 | (undo) | `DELETE /items/{item_id}/user-done` | the `Item` back as Canvas sees it | instant |
-| `sync_canvas` | `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` | 10–35 s |
+| `sync_canvas` | `POST /sync` | `{synced_at, backend, data_source, llm_used, llm_error, counts}` (counts incl. `materials`, `materials_with_text`) | 15–45 s |
 | `get_canvas_health` | `GET /health` | `{ok, backend, llm, last_sync, sync_in_progress, last_error}` | instant |
 
-Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` · `503 canvas_login_expired` (Abishek re-signs in) · `502` backend failure (see `detail`).
+Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` (too large / link / unsupported — use its `url`) · `503 canvas_login_expired` (Abishek re-signs in) · `502` backend failure (see `detail`).
 **Reads never block on Canvas:** if the cache is stale they return the old data immediately and refresh in the background, so the brain never waits ~30 s mid-conversation. Only the very first call after a fresh start waits for one sync.
 
 **`user-done` semantics (differs slightly from the original TODO 3, on purpose):** Canvas is never written to. The override is stored in `data/user_overrides.json` and **survives re-syncs** (otherwise HW3 would pop back into the to-do list every 30 min while Canvas still says "not submitted"). It is dropped automatically when Canvas shows the item submitted/excused/complete, or when the due date passes. Marking an item that is already done in Canvas is a no-op. The brain should still write "student says HW3 done" to supermemory.
@@ -120,6 +131,28 @@ Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` · `503 canva
 - `due_at` is UTC ISO-8601 (convert to America/Phoenix for display).
 - `data_source`: `live` (real Canvas) or `demo` (mock) — demo is always labeled, never shown as live.
 
+### Material + MaterialText (real example, trimmed)
+```json
+{"id": "page-266933-required-reading-and-summaries-module-5", "course_id": "266933", "course_code": "CSE 540",
+ "title": "Required Reading and Summaries: Module 5", "type": "page",
+ "url": "https://canvas.asu.edu/courses/266933/modules/items/...",
+ "module": "(11/11 - 11/17) Module 5: Mining", "module_position": 7, "position": 3,
+ "week_start": "2026-11-11", "week_end": "2026-11-17",
+ "content_type": null, "size_bytes": null, "updated_at": null, "text_status": "ready"}
+```
+- `id`: `syllabus-<course>` · `file-<id>` · `page-<course>-<slug>` · `link-<course>-<item>`
+- `type`: `syllabus | pdf | page | file | link`. Files linked from the syllabus have `module: "Syllabus"` (e.g. "CSE 540 …_Syllabus.pdf" — exam dates live there).
+- `text_status`: `ready` (cached, instant) · `not_fetched` (fetched on first text call) · `too_large` · `unsupported` (pptx/docx…) · `link_only` · `locked` · `error`.
+- `week_start/week_end` only when the module name has dates (CSE 540 yes; CSE 507/579 no → null).
+- `topic_hint` = loose match on title + module words (`heaps`, `module 5`). `this_week=true` = modules dated today..+7 days + syllabus.
+
+`GET /materials/{id}/text` → `{material_id, course_id, course_code, title, type, module, source_url, fetched_at, pages, total_chars, offset, next_offset, text}`. PDF text has `[page N]` markers → cite `source_url` + page. Text is never committed (cached in gitignored `data/materials/`).
+
+### MCP — same tools at `/mcp` (streamable-HTTP)
+URL `${PUBLIC_CANVAS_BASE}/mcp`, header `X-Jarvis-Key` (401 without). Tools (args → same JSON as REST):
+`get_daily_brief(days)` · `get_todo_list(days, include_done)` · `get_item_details(item_id)` · `mark_item_done_locally(item_id)` · `unmark_item_done(item_id)` · `list_courses()` · `get_course_items(course_id, include_done)` · `get_course_materials(course_id, topic_hint?, this_week?)` · `get_material_text(material_id, offset=0, max_chars=20000)` · `sync_canvas()` · `get_canvas_health()`.
+Errors come back as MCP tool errors with a readable message (e.g. "too_large … use the url"). Tested through the tunnel with the official MCP Python client: reads ≈ 0.1 s.
+
 ### Demo data without keys
 `BROWSER_BACKEND=mock` serves labeled fake courses (CSE 310, MAT 343). Static copy: `apps/browser-agent/mocks/canvas_snapshot.json`.
 
@@ -131,16 +164,17 @@ Errors: `401` missing/wrong `X-Jarvis-Key` · `404 item_not_found` · `503 canva
 | `app/service.py` | One sync: `start_sync → courses → items → details (parallel) → end_sync → Gemini batch → classify → overrides → save`. Reads: fresh → instant, stale → instant + background refresh. Also `/brief`, item lookup, user-done/undo, to-do query. |
 | `app/overrides.py` | Student "I already did it" overrides in `data/user_overrides.json`; re-applied after each sync, auto-pruned when Canvas catches up or the due date passes. |
 | `app/backends/base.py` | Contract every backend follows + `CanvasLoginExpired`. |
-| `app/backends/tinyfish.py` | Opens the TinyFish profile browser, connects Playwright, reads Canvas JSON, converts it to `RawItem`s, closes the browser. |
+| `app/backends/tinyfish.py` | Opens the TinyFish profile browser, connects Playwright, reads Canvas JSON, converts it to `RawItem`s, lists materials, downloads one material's text, closes the browser. |
 | `app/backends/mock.py` | Labeled demo data, no keys. |
 | `app/classify.py` | Rules → Gemini merge → hard to-do filter → `Item`. |
 | `app/llm.py` | Gemini classifier: one batched call, structured JSON output, model fallback, safe prompt. |
 | `app/models.py` | All JSON shapes: `RawItem`, `Item`, `Course`, `Material`, `Snapshot`, `SyncResult`, `Health`, `Brief`. |
 | `app/cache.py` | `data/canvas_snapshot.json` (gitignored) + freshness check. |
 | `app/config.py` | Env settings (`.env`, see `.env.example`). |
-| `app/materials.py` | PDF text extraction with `pypdf` — used by the course-materials step (next). |
+| `app/materials.py` | Materials: Canvas modules/files/syllabus → `Material` list, week dates from module names, what to pre-fetch, PDF → text (`pypdf`, `[page N]`), text cache `data/materials/` + slicing. Pure functions. |
+| `app/mcp_server.py` | MCP face: 11 tools over the same `BrowserAgentService` + `X-Jarvis-Key` guard on `/mcp`. |
 | `scripts/export_mock.py` | Regenerates `mocks/canvas_snapshot.json`. |
-| `tests/unit`, `tests/api`, `tests/fixtures` | 64 tests, no network: classifier, Canvas JSON conversion, Gemini parsing + fallback, background refresh, overrides, auth, every endpoint. |
+| `tests/unit`, `tests/api`, `tests/fixtures` | 87 tests, no network: classifier, Canvas JSON conversion, Gemini, background refresh, overrides, auth, materials (week parsing, file types, cache, slicing), every endpoint, MCP (discovery, calls, errors, auth). |
 
 ## Setup (for whoever runs it)
 
@@ -161,7 +195,7 @@ Real Canvas needs in `.env`: `BROWSER_BACKEND=tinyfish`, `TINYFISH_API_KEY`, `TI
 ## Handoffs
 
 - **Saswata (orchestrator):** use the contract above. `/items/next` for "what's next / weekly plan". Route `exam_prep` items to Amrita, propose calendar blocks for `schedule_block` (approval-gated). Write facts to supermemory yourself.
-- **Amrita (quiz):** materials (PDF text) are the next thing I build; until then use `mocks/canvas_snapshot.json` → `materials`.
+- **Amrita (quiz):** `GET /materials?course_id=` (or `this_week=true`) → for each material with `text_status` `ready`/`not_fetched`, `GET /materials/{id}/text` (loop `next_offset`) → chunk + embed. Use `source_url` + `[page N]` as the passage source. Same key header.
 - **Shruti (UI):** render `items` directly; every item has `source_url`, `due_at`, `notes`; show "syncing…" while `/sync` runs.
 
 ## For Saswata — read this before wiring the Hermes harness (Nov 14, late)
@@ -176,7 +210,9 @@ TODOs 1, 2, 3, 5 are **done, tested on real ASU Canvas, and pushed**. Things to 
 6. **Gemini model:** your build plan pins **Gemini 2.5 Flash** — with a new API key Google returns *404 "no longer available to new users"*. Use **`gemini-3.5-flash`** (≈5 s) or `gemini-3.5-flash-lite` (≈1 s). On Nov 14, `gemini-3.7-flash` / `gemini-3.8-flash` hung > 2 min and `gemini-flash-latest` returned 503. Add a fallback model + a ~30 s timeout.
 7. **Port mismatch to settle with Amrita:** your diagram says materials/quiz on `:9003`, `shared.env` says `RETRIEVAL_QUIZ_PORT=9002`.
 8. **Error handling in the brain:** `503 canvas_login_expired` → tell the user "Canvas login expired, Abishek needs to re-sign in" (don't retry in a loop). `404 item_not_found` → item ids come from `/brief` or `/items/next` (format `assignment-7796330`, `quiz-2062789`, `discussion_topic-…`).
-9. **Materials (`get_course_materials`) is still empty for real Canvas** — TODO 4 is next on Abishek's list.
+9. **Materials done (TODO 4):** list + text, see contract. **New tool `get_material_text(material_id, offset, max_chars)`** (asked for by exam prep / Amrita: the list alone has no text) and two optional args on `get_course_materials`: `topic_hint`, `this_week`. Shout if you want different names.
+10. **MCP done (TODO 6), at `/mcp`.** Your config snippet works as is (`url: ${PUBLIC_CANVAS_BASE}/mcp`, header `X-Jarvis-Key`). Three things differ from your sketch, on purpose: (a) uses the `mcp` **1.x** SDK (`mcp>=1.20,<2`) — 2.x renamed `FastMCP`; (b) auth is an ASGI guard on `/mcp` (a mounted sub-app skips FastAPI's `Depends`, so your sketch would have left `/mcp` open); (c) host check off (requests come via the Cloudflare host), key check does the protecting. `json_response` + stateless mode.
+11. **Exam prep flow (your side):** `get_course_materials(course_id, this_week=true)` → syllabus + current module; `get_material_text` on the syllabus/syllabus PDF for exam dates & coverage, then on the module files. Don't invent coverage — every claim cites `source_url`.
 
 ## TODO from Saswata (orchestrator) — unblocks voice demo
 
@@ -258,7 +294,7 @@ async def mark_user_done(self, item_id: str) -> Item:
 
 Brain calls this as `mark_item_done_locally`.
 
-### [ ] TODO 4 — materials pipeline (reinforces your existing Next Steps #1)
+### [x] TODO 4 — materials pipeline — DONE (list + on-demand text + pre-fetch; see contract → Material)
 
 Already your top priority. Minimal first cut unblocks Amrita even without PDF extraction:
 
@@ -292,7 +328,7 @@ Notes:
 - Quick-tunnel URL changes every cloudflared restart. Pin a named tunnel only if we have time (not blocking).
 - Zero auth on the tunnel for now — service is read-only + no PII beyond the signed-in Canvas account. Fine for 24h hackathon window. **Delete tunnel after the event.**
 
-### [ ] TODO 6 — expose the service as an MCP server (streamable-HTTP)
+### [x] TODO 6 — expose the service as an MCP server (streamable-HTTP) — DONE (`/mcp`, 11 tools; see "For Saswata" #10 for the 3 differences from this sketch)
 
 Reverses the earlier "HTTP, not MCP for sub-agents" decision. Trade: ~2-3h of restructuring vs cleaner Hermes config + standard MCP discovery. Non-functional improvement, same end-to-end latency.
 
@@ -447,7 +483,8 @@ After this, Hermes's tool registry auto-discovers tools as `mcp_canvas_get_daily
 | `get_item_details(item_id)` | `GET /items/{item_id}` | **TODO 2** |
 | `get_course_items(course_id, include_done)` | `GET /items?course_id=` | existing |
 | `list_courses()` | `GET /courses` | existing |
-| `get_course_materials(course_id, topic_hint?)` | `GET /materials?course_id=` | **TODO 4** fills body |
+| `get_course_materials(course_id, topic_hint?, this_week?)` | `GET /materials?course_id=` | **TODO 4** done |
+| `get_material_text(material_id, offset?, max_chars?)` | `GET /materials/{id}/text` | **new** (TODO 4) |
 | `sync_canvas()` | `POST /sync` | existing |
 | `get_canvas_health()` | `GET /health` | existing |
 | `mark_item_done_locally(item_id)` | `POST /items/{item_id}/user-done` | **TODO 3** |
@@ -456,14 +493,14 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 
 ## Abishek's TODO list (in order) — mark `[x]` when done
 
-### [ ] A. Course materials (= Saswata's TODO 4) — unblocks Amrita
-- `TinyFishBackend.fetch_materials(course)`: read `/api/v1/courses/:id/modules?include[]=items` + `/api/v1/courses/:id/files` in the same logged-in browser.
-- First cut: `Material {id, course_id, title, type, url}` list → `/materials?course_id=` (Amrita can start on URLs).
-- Second cut: download PDFs through the logged-in browser → `pypdf` text → `extracted_text` (+ `local_path`).
-- A course with a hidden Files tab returns `403` → skip that source, don't fail the sync (the 403-vs-login fix is already in).
-- Optional `topic_hint` filter for `get_course_materials(course_id, topic_hint?)`.
+### [x] A. Course materials (= Saswata's TODO 4) — DONE
+- Modules first (work even with a hidden Files tab), Files tab extra, syllabus + PDFs linked from it.
+- Text on demand + pre-fetch this/next week + syllabus; 25 MB cap; archives/images skipped.
+- `topic_hint` + `this_week` filters; MCP + REST.
+- Later, if time: pptx/docx text; guess the "current module" for courses without dates in module names (CSE 507/579).
 
 ### [ ] B. Exam prep
+- Syllabus text (+ syllabus PDFs) is now available via materials — use it as a source alongside announcements.
 - Pull announcements (`/api/v1/announcements?context_codes[]=course_:id`) + syllabus body for current courses.
 - Gemini extracts **exam date + topics** from that text ("Midterm 2 next Thursday covers AVL trees and heaps") → `exam` items with `due_at`, `topics`, `suggested_action: exam_prep`, `source_url` = the announcement.
 - Exams must show in `/brief` and `/items/next`; the brain routes them to Amrita's quiz engine.
@@ -482,6 +519,7 @@ Ping Saswata when TODOs 1-3 + 5 land; that unblocks the orchestrator's first voi
 - [x] Real Canvas via TinyFish (JSON in the logged-in browser), to-do list without submitted work, Gemini steps/topics/notes.
 - [x] Saswata's TODOs 1, 2, 3, 5: `/brief`, `/items/{id}`, user-done + undo, public tunnel + `X-Jarvis-Key`.
 - [x] Background refresh (reads never block). Optional later: live sync progress for the UI.
+- [x] Course materials (TODO 4) + MCP server at `/mcp` (Saswata's TODO 6).
 
 ## Open questions
 

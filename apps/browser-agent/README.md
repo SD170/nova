@@ -62,9 +62,11 @@ Auth: if `BROWSER_AGENT_API_KEY` is set, send header `X-Jarvis-Key` on every end
 | `GET /items/next?days=7&include_done=true` | everything due (submitted work + events too) with `in_todo` + `todo_reason` |
 | `GET /items?course_id=` | all items of a course |
 | `GET /courses` | `{synced_at, data_source, courses: [{id, code, name, term}]}` |
-| `GET /materials?course_id=` | course materials (empty for real Canvas — next step) |
+| `GET /materials?course_id=&topic_hint=&this_week=` | study materials list (syllabus, PDFs, Canvas pages, links) with module + week dates + `text_status`; no text |
+| `GET /materials/{id}/text?offset=&max_chars=` | plain text of one material (`[page N]` markers), cached after first call; long docs in slices via `next_offset` |
+| `POST /mcp` (MCP streamable-HTTP) | same 11 tools for Hermes / any MCP client; same `X-Jarvis-Key` |
 
-Errors: `401` wrong/missing key · `404 item_not_found` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
+Errors: `401` wrong/missing key · `404 item_not_found` / `material_not_found` · `422 material_text_unavailable` · `503 {"error": "canvas_login_expired"}` → sign in again · `502` → backend failure (see `detail`).
 
 ## Env vars (see `.env.example`; secrets in `.env`, gitignored)
 
@@ -80,6 +82,8 @@ Errors: `401` wrong/missing key · `404 item_not_found` · `503 {"error": "canva
 | `GEMINI_FALLBACK_MODELS` / `GEMINI_TIMEOUT_SECONDS` | `gemini-3.5-flash-lite` / `30` | Tried in order if the main model is slow or busy |
 | `LLM_CONFIDENCE_THRESHOLD` | `0.7` | Below this the LLM result is ignored |
 | `TINYFISH_API_KEY` / `TINYFISH_BASE_URL` / `TINYFISH_PROFILE_ID` | — | TinyFish browser signed into Canvas |
+| `MATERIALS_MAX_MB` | `25` | Files bigger than this are listed as `too_large` (no download) |
+| `MATERIALS_PREFETCH_DAYS` / `_LIMIT` / `_SECONDS` | `7` / `12` / `60` | Each sync pre-extracts syllabus + modules dated today..+N days, max N per course, time-boxed |
 
 ## Code map
 
@@ -93,7 +97,8 @@ app/
   models.py             all JSON shapes (RawItem, Item, Course, Material, Snapshot, ...)
   cache.py              data/canvas_snapshot.json + freshness
   config.py             env settings
-  materials.py          PDF text extraction (used by course materials, next step)
+  materials.py          Canvas modules/files/syllabus → Material list, week dates, prefetch pick, PDF → text, text cache
+  mcp_server.py         MCP tools at /mcp (same service) + X-Jarvis-Key guard
   backends/
     base.py             backend contract + CanvasLoginExpired
     tinyfish.py         real Canvas via TinyFish browser + Canvas JSON
@@ -102,7 +107,7 @@ scripts/export_mock.py  regenerate mocks/canvas_snapshot.json
 mocks/                  demo snapshot for teammates
 tests/
   unit/                 classifier, Canvas JSON conversion, Gemini parsing/fallback
-  api/                  every endpoint on the mock backend
+  api/                  every endpoint + MCP on the mock backend
   fixtures/             classify_cases.json (labeled examples)
 ```
 
@@ -116,5 +121,5 @@ Put the URL in repo-root `shared.env` as `PUBLIC_CANVAS_BASE` (it changes every 
 
 ## Status
 
-Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics, /brief, /items/{id}, user-done overrides, background refresh, shared-secret auth, public tunnel.
-Next: course materials (PDFs for the quiz engine), exam prep (exam dates from announcements), grades for the Daily Pulse, stress test.
+Done: real Canvas via TinyFish, to-do list without submitted work, Gemini steps/notes/topics, /brief, /items/{id}, user-done overrides, background refresh, shared-secret auth, public tunnel, course materials (list + text), MCP at /mcp.
+Next: exam prep (exam dates from announcements), grades for the Daily Pulse, stress test.

@@ -15,9 +15,10 @@ def test_sync_counts(client):
     assert body["backend"] == "mock" and body["data_source"] == "demo"
     assert body["llm_used"] is False
     c = body["counts"]
-    assert c["courses"] == 2 and c["items"] == 8 and c["materials"] == 3
+    assert c["courses"] == 2 and c["items"] == 8 and c["materials"] == 6
     assert c["assignment"] == 4 and c["quiz"] == 2 and c["exam"] == 1 and c["unknown"] == 1
     assert c["submitted"] == 2  # HW2 (past) + Weekly Check-in 7
+    assert c["materials_with_text"] == 4  # syllabus + this/next week's modules prefetched
 
 
 def test_courses(client):
@@ -61,12 +62,6 @@ def test_items_filter_by_course(client):
     items = client.get("/items?course_id=mat343").json()["items"]
     assert items and all(i["course_id"] == "mat343" for i in items)
     assert client.get("/items?course_id=nope").json()["items"] == []
-
-
-def test_materials(client):
-    mats = client.get("/materials?course_id=cse310").json()["materials"]
-    assert [m["title"] for m in mats] == ["Lecture 9 - AVL Trees", "Lecture 10 - Heaps"]
-    assert all(m["extracted_text"] for m in mats)
 
 
 def test_cache_reused_within_ttl(client):

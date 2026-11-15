@@ -8,12 +8,15 @@ How one sync works (~3-7 s, all READ-ONLY):
        /api/v1/courses                 -> courses
        /api/v1/planner/items           -> everything due, all courses, one call
        /api/v1/courses/:id/assignments/:id -> instructions + submission types
+       /api/v1/courses/:id/modules (+ files, syllabus) -> materials LIST
+     Material text (PDF / page / syllabus) is downloaded the same way, on demand.
   4. end_sync: close the browser WITHOUT saving (the saved login is untouched).
 
 No AI clicks anything here. TinyFish's AI agent (TinyAgent) is not used for
 Canvas because the JSON is faster and exact.
 """
 
+import asyncio
 import html
 import json
 import logging
@@ -25,7 +28,8 @@ from typing import Any
 import httpx
 
 from ..config import Settings
-from ..models import Course, DataSource, Material, RawItem, SourceKind
+from .. import materials as mat
+from ..models import Course, DataSource, Material, MaterialType, RawItem, SourceKind
 from .base import BrowserBackend, CanvasLoginExpired
 
 log = logging.getLogger(__name__)
@@ -146,7 +150,7 @@ class TinyFishBackend(BrowserBackend):
         return httpx.AsyncClient(base_url=self.s.tinyfish_base_url, timeout=60,
                                  headers={"X-API-Key": self.s.tinyfish_api_key})
 
-    async def start_sync(self) -> None:
+    async def open_session(self) -> None:
         from playwright.async_api import async_playwright  # lazy: not needed for mock
 
         async with self._tf() as tf:
@@ -159,16 +163,7 @@ class TinyFishBackend(BrowserBackend):
         self._browser = await self._pw.chromium.connect_over_cdp(self._session["cdp_url"])
         self._ctx = self._browser.contexts[0]
 
-        # One planner call covers every course; fetched up front so we can tell
-        # which courses are current (ASU leaves Canvas term dates empty).
-        start = datetime.now(timezone.utc).date() - timedelta(days=self.s.sync_past_days)
-        end = datetime.now(timezone.utc).date() + timedelta(days=self.s.sync_days)
-        self._planner = await self._get(
-            f"/api/v1/planner/items?start_date={start}&end_date={end}&per_page=100")
-        self._courses = await self._get(
-            "/api/v1/courses?enrollment_state=active&include[]=term&per_page=100")
-
-    async def end_sync(self) -> None:
+    async def close_session(self) -> None:
         try:
             if self._browser:
                 await self._browser.close()
@@ -185,6 +180,17 @@ class TinyFishBackend(BrowserBackend):
                 log.warning("Closing TinyFish session failed: %s", exc)
         self._session = self._pw = self._browser = self._ctx = None
 
+    async def start_sync(self) -> None:
+        await self.open_session()
+        # One planner call covers every course; fetched up front so we can tell
+        # which courses are current (ASU leaves Canvas term dates empty).
+        start = datetime.now(timezone.utc).date() - timedelta(days=self.s.sync_past_days)
+        end = datetime.now(timezone.utc).date() + timedelta(days=self.s.sync_days)
+        self._planner = await self._get(
+            f"/api/v1/planner/items?start_date={start}&end_date={end}&per_page=100")
+        self._courses = await self._get(
+            "/api/v1/courses?enrollment_state=active&include[]=term&per_page=100")
+
     async def _get(self, path: str) -> Any:
         resp = await self._ctx.request.get(self.s.canvas_base_url + path,
                                            headers={"Accept": "application/json"})
@@ -198,6 +204,16 @@ class TinyFishBackend(BrowserBackend):
         if resp.status != 200:
             raise RuntimeError(f"Canvas {path} -> HTTP {resp.status}: {body[:200]}")
         return json.loads(body.removeprefix("while(1);"))
+
+    async def _try_get(self, path: str) -> Any | None:
+        """Like _get, but a hidden resource (403/404) is None instead of an error."""
+        try:
+            return await self._get(path)
+        except CanvasLoginExpired:
+            raise
+        except Exception as exc:
+            log.info("Canvas %s unavailable: %s", path, str(exc)[:120])
+            return None
 
     # ---------- BrowserBackend ----------
 
@@ -232,5 +248,77 @@ class TinyFishBackend(BrowserBackend):
         return apply_assignment_detail(raw, detail)
 
     async def fetch_materials(self, course: Course) -> list[Material]:
-        # TODO (next step, for Amrita): /api/v1/courses/:id/files + modules -> PDFs.
-        return []
+        """Modules first (works even when the Files tab is hidden, as in CSE 540/579),
+        then any extra files from the Files tab, then the syllabus if it has text."""
+        cid = course.id
+        base = self.s.canvas_base_url
+        max_bytes = int(self.s.materials_max_mb * 1_000_000)
+        modules, files, syl = await asyncio.gather(
+            self._try_get(f"/api/v1/courses/{cid}/modules?include[]=items"
+                          "&include[]=content_details&per_page=100"),
+            self._try_get(f"/api/v1/courses/{cid}/files?per_page=100"),
+            self._try_get(f"/api/v1/courses/{cid}?include[]=syllabus_body"))
+        modules, files = modules or [], files or []
+        for mod in modules:  # Canvas omits "items" when a module is very large
+            if "items" not in mod:
+                mod["items"] = await self._try_get(
+                    f"/api/v1/courses/{cid}/modules/{mod['id']}/items?include[]=content_details"
+                    "&per_page=100") or []
+
+        meta = {str(f["id"]): f for f in files if isinstance(f, dict) and "id" in f}
+
+        # Files tab hidden -> look up each module file's metadata (size, type, lock)
+        missing = {str(it.get("content_id")) for m in modules for it in m.get("items") or []
+                   if it.get("type") == "File" and str(it.get("content_id")) not in meta}
+        sem = asyncio.Semaphore(6)
+
+        async def one(fid: str):
+            async with sem:
+                f = await self._try_get(f"/api/v1/courses/{cid}/files/{fid}")
+                if isinstance(f, dict):
+                    meta[fid] = f
+
+        await asyncio.gather(*(one(fid) for fid in missing))
+
+        out = mat.module_materials(course, modules, meta, base, max_bytes)
+        in_modules = {m.id for m in out}
+        for f in files:  # files not linked from any module
+            if isinstance(f, dict) and f"file-{f.get('id')}" not in in_modules:
+                m = mat.file_material(course, f, base, max_bytes)
+                if m:
+                    out.append(m)
+        body = syl.get("syllabus_body") if isinstance(syl, dict) else None
+        if html_to_text(body):
+            # Files linked from the syllabus (often "the PDF syllabus" with exam dates)
+            linked = []
+            for fid in mat.linked_file_ids(body):
+                f = meta.get(fid) or await self._try_get(f"/api/v1/courses/{cid}/files/{fid}")
+                m = mat.file_material(course, f, base, max_bytes) if isinstance(f, dict) else None
+                if m:
+                    m.module = "Syllabus"
+                    linked.append(m)
+            out = [mat.syllabus_material(course, base), *linked, *out]
+        return mat.dedupe(out)
+
+    async def fetch_material_text(self, material: Material) -> tuple[str, int | None]:
+        if self._ctx is None:
+            raise RuntimeError("No browser session open")
+        if material.type == MaterialType.syllabus:
+            data = await self._get(material.fetch_ref)
+            return html_to_text(data.get("syllabus_body")), None
+        if material.type == MaterialType.page:
+            data = await self._get(material.fetch_ref)
+            return html_to_text(data.get("body")), None
+        if material.type in (MaterialType.pdf, MaterialType.file):
+            meta = await self._get(material.fetch_ref)  # fresh signed download URL
+            size = meta.get("size") or 0
+            if size > self.s.materials_max_mb * 1_000_000:
+                raise ValueError(f"File is {size / 1e6:.0f} MB, over MATERIALS_MAX_MB")
+            resp = await self._ctx.request.get(meta["url"], timeout=120_000)
+            if resp.status != 200:
+                raise RuntimeError(f"Download -> HTTP {resp.status}")
+            data = await resp.body()
+            if material.type == MaterialType.pdf:
+                return await asyncio.to_thread(mat.extract_pdf_text, data)
+            return data.decode("utf-8", errors="replace")[:mat.MAX_TEXT_CHARS], None
+        raise ValueError(f"No text for material type {material.type.value}")

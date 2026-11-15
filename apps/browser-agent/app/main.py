@@ -3,8 +3,10 @@
 Run:  uvicorn app.main:app --port 9001   (from apps/browser-agent/; port from shared.env)
 Docs: http://localhost:9001/docs
 
+MCP:  streamable-HTTP at /mcp (same tools, see mcp_server.py)
+
 Auth: if BROWSER_AGENT_API_KEY is set, every endpoint except /health and the docs
-needs header `X-Jarvis-Key: <key>` (use the "Authorize" button in /docs).
+(including /mcp) needs header `X-Jarvis-Key: <key>` (use "Authorize" in /docs).
 """
 
 import hmac
@@ -15,13 +17,16 @@ from datetime import datetime
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Security
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
+from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from pydantic import BaseModel
+from starlette.routing import Route
 
 from .backends import get_backend
 from .backends.base import CanvasLoginExpired
 from .cache import SnapshotCache
 from .config import Settings, get_settings
 from .llm import GeminiClassifier
+from .mcp_server import HIDE, KeyGuard, build_mcp
 from .models import (
     Brief,
     Course,
@@ -30,6 +35,9 @@ from .models import (
     Item,
     ItemNotFound,
     Material,
+    MaterialNotFound,
+    MaterialText,
+    MaterialTextUnavailable,
     NoSnapshot,
     Snapshot,
     SyncResult,
@@ -72,7 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 timeout=settings.gemini_timeout_seconds)
                if settings.llm_active else None)
         app.state.service = BrowserAgentService(settings, backend, cache, llm)
-        yield
+        async with mcp.session_manager.run():
+            yield
         await backend.close()
 
     def require_key(key: str | None = Security(API_KEY_HEADER)) -> None:
@@ -80,8 +89,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if expected and not (key and hmac.compare_digest(key, expected)):
             raise HTTPException(status_code=401, detail="Missing or wrong X-Jarvis-Key header")
 
-    app = FastAPI(title="Jarvis browser agent", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Jarvis browser agent", version="0.3.0", lifespan=lifespan)
     protected = [Depends(require_key)]
+
+    # MCP at /mcp: a second face over the same service (tools resolve it lazily)
+    mcp = build_mcp(lambda: app.state.service)
+    mcp.streamable_http_app()  # creates mcp.session_manager
+    app.router.routes.append(Route(
+        "/mcp", KeyGuard(StreamableHTTPASGIApp(mcp.session_manager), settings.browser_agent_api_key),
+        methods=["GET", "POST", "DELETE"], include_in_schema=False))
 
     def svc(request: Request) -> BrowserAgentService:
         return request.app.state.service
@@ -101,6 +117,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(NoSnapshot)
     async def no_snapshot(_req: Request, exc: NoSnapshot):
         return JSONResponse(status_code=409, content={"error": "no_snapshot", "detail": str(exc)})
+
+    @app.exception_handler(MaterialNotFound)
+    async def material_not_found(_req: Request, exc: MaterialNotFound):
+        return JSONResponse(status_code=404,
+                            content={"error": "material_not_found", "detail": f"No material {exc}"})
+
+    @app.exception_handler(MaterialTextUnavailable)
+    async def material_no_text(_req: Request, exc: MaterialTextUnavailable):
+        return JSONResponse(status_code=422,
+                            content={"error": "material_text_unavailable", "detail": str(exc)})
 
     async def snapshot_or_502(request: Request) -> Snapshot:
         try:
@@ -179,12 +205,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """Undo: 'actually I haven't done it'."""
         return await svc(request).undo_user_done(item_id)
 
-    @app.get("/materials", response_model=MaterialsResponse, dependencies=protected)
-    async def materials(request: Request, course_id: str | None = None):
-        snap = await snapshot_or_502(request)
-        found = [m for m in snap.materials if course_id is None or m.course_id == course_id]
+    @app.get("/materials", response_model=MaterialsResponse, dependencies=protected,
+             response_model_exclude={"materials": {"__all__": HIDE}})
+    async def materials(
+        request: Request,
+        course_id: str | None = None,
+        topic_hint: str | None = Query(None, description="words to match in title/module"),
+        this_week: bool = Query(False, description="only modules dated today..+7 days + syllabus"),
+    ):
+        """Study materials LIST (no text): syllabus, PDFs, Canvas pages, links, with module
+        + week dates. text_status=ready means GET /materials/{id}/text is instant."""
+        await snapshot_or_502(request)
+        snap, found = await svc(request).list_materials(course_id, topic_hint, this_week)
         return MaterialsResponse(synced_at=snap.synced_at, data_source=snap.data_source,
                                  materials=found)
+
+    @app.get("/materials/{material_id}/text", response_model=MaterialText, dependencies=protected)
+    async def material_text(
+        request: Request,
+        material_id: str,
+        offset: int = Query(0, ge=0),
+        max_chars: int = Query(50_000, ge=1_000, le=200_000),
+    ):
+        """Plain text of one material (PDFs keep [page N] markers). Cached after the first
+        call; long texts come in slices (repeat with offset=next_offset)."""
+        await snapshot_or_502(request)
+        try:
+            return await svc(request).material_text(material_id, offset, max_chars)
+        except (CanvasLoginExpired, MaterialNotFound, MaterialTextUnavailable):
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Could not read material: {exc}") from exc
 
     return app
 

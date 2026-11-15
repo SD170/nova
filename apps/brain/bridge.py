@@ -1194,14 +1194,21 @@ async def events_push_options():
 
 @app.get("/events")
 async def events_stream(request: Request):
-    """SSE stream for the Electron UI. Replays the ring buffer on connect
-    then streams new events as they arrive."""
+    """SSE stream for the Electron UI.
+
+    By default we DO NOT replay the ring on connect — a fresh UI session
+    should show an empty activity chip, not the accumulated noise from
+    every tool call since the bridge booted. Pass ?replay=1 to get the
+    ring (useful for debugging / chip 'History' view).
+    """
     from fastapi.responses import StreamingResponse
 
+    replay = request.query_params.get("replay", "0") not in ("0", "", "false", "no")
+
     async def gen():
-        # Backfill
-        for ev in list(_events_ring):
-            yield f"data: {json.dumps(ev)}\n\n"
+        if replay:
+            for ev in list(_events_ring):
+                yield f"data: {json.dumps(ev)}\n\n"
         q: asyncio.Queue = asyncio.Queue(maxsize=200)
         _event_subscribers.add(q)
         try:
@@ -1230,6 +1237,11 @@ async def events_stream(request: Request):
 # ──── every speech-update / transcript event; we store the newest ts
 # ──── per call_id. _wait_for_user_silence() below polls it.
 _last_user_speech_at: dict[str, float] = {}
+# Latest known "active" (user talking) state per call_id, from the UI pings.
+# True = user was still talking at the time of the last ping; False = they
+# finished. Used by _wait_for_user_silence to only hold the inject when
+# the user is CURRENTLY mid-sentence, not merely when they spoke recently.
+_user_speech_active: dict[str, bool] = {}
 
 
 @app.post("/user_speech")
